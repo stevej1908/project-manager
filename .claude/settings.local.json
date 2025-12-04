@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(find:*)",
+      "Bash(\"/c/Program Files/PostgreSQL/18/bin/psql.exe\" -U postgres -d project_manager -c \"SELECT id, title FROM tasks LIMIT 1;\")",
+      "Bash(\"/c/Program Files/PostgreSQL/18/bin/psql.exe\" -U postgres -d project_manager -c \"\\d task_comments\")",
+      "Bash(\"/c/Program Files/PostgreSQL/18/bin/psql.exe\" -U postgres -d project_manager -c \"\nSELECT \n  t.id,\n  t.title,\n  t.status,\n  t.parent_task_id,\n  t.position,\n  (SELECT COUNT(*) FROM tasks sub WHERE sub.parent_task_id = t.id) as subtask_count\nFROM tasks t\nWHERE t.project_id = 1\nORDER BY t.parent_task_id NULLS FIRST, t.position;\n\")",
+      "Bash(\"/c/Program Files/PostgreSQL/18/bin/psql.exe\" -U postgres -d project_manager -c \"\\d task_dependencies\")",
+      "Bash(\"/c/Program Files/PostgreSQL/18/bin/psql.exe\" -U postgres -d project_manager -c \"\\d task_attachments\")",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nInitial commit: Project Manager with full feature set\n\nThis is the base version of the Project Manager application with all core features implemented:\n\n## Features Implemented:\n\n### Authentication & User Management\n- Google OAuth 2.0 integration\n- Gmail, Google Contacts, and Google Drive API access\n- User authentication with JWT tokens\n- Session management\n\n### Project Management\n- Create, read, update, delete projects\n- Project sharing with role-based access (owner, editor, viewer)\n- Project archiving\n- Multi-user collaboration\n\n### Task Management\n- Hierarchical tasks with parent-child relationships\n- Sub-task support with automatic parent status calculation\n- Task statuses: todo, in_progress, review, done\n- Priority levels: low, medium, high, urgent\n- Task dependencies with multiple dependency types\n- Task assignments (users and contacts)\n- Comments on tasks\n- Google Drive file attachments\n\n### Views\n- **Board View (Table/List)**: \n  - Task list with status columns\n  - Hierarchical display with expand/collapse\n  - Visual indentation for sub-tasks\n  - Dependency indicators\n  - Inline status updates\n  \n- **Gantt Chart View**:\n  - Interactive timeline visualization\n  - Resource/assignee display\n  - Enhanced progress tracking (subtask-based for parents)\n  - Critical path calculation and highlighting\n  - Advanced filtering (status, priority, assignee, parent tasks)\n  - Drag-to-update task dates\n  - Multiple view modes (Day, Week, Month, Year)\n  - Color-coded by priority and status\n\n### Dependency Management\n- Visual dependency interface\n- Cross-hierarchy dependencies\n- Dependency types: finish-to-start, start-to-start, finish-to-finish, start-to-finish\n- Dependency visualization in Gantt chart\n\n### Google Drive Integration\n- Browse and attach Drive files to tasks\n- File picker with search\n- Thumbnail previews\n- Direct links to open files in Drive\n- File removal functionality\n\n### Gmail Integration\n- Create tasks from Gmail messages\n- Gmail thread linking\n\n### Database\n- PostgreSQL with full relational schema\n- Foreign key constraints\n- Cascading deletes\n- Transaction support\n- Optimized queries with joins\n\n### Technical Stack\n- **Frontend**: React, Tailwind CSS, Frappe Gantt, date-fns, Lucide icons\n- **Backend**: Node.js, Express\n- **Database**: PostgreSQL\n- **Authentication**: Google OAuth 2.0, JWT\n- **APIs**: Google Gmail, Contacts, Drive\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

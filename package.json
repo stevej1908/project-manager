@@ -1,0 +1,59 @@
+{
+  "name": "project-manager",
+  "version": "1.0.0",
+  "description": "Project Management App with Google Integrations",
+  "private": true,
+  "proxy": "http://localhost:5000",
+  "dependencies": {
+    "@testing-library/jest-dom": "^5.16.4",
+    "@testing-library/react": "^13.3.0",
+    "@testing-library/user-event": "^13.5.0",
+    "date-fns": "^2.30.0",
+    "frappe-gantt": "^1.0.4",
+    "lucide-react": "^0.263.1",
+    "react": "^18.2.0",
+    "react-beautiful-dnd": "^13.1.1",
+    "react-dom": "^18.2.0",
+    "react-frappe-gantt": "^0.2.3",
+    "react-scripts": "5.0.1",
+    "web-vitals": "^2.1.4"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "server": "cd server && npm run dev",
+    "dev": "concurrently \"npm run server\" \"npm start\" --names \"SERVER,CLIENT\" --prefix-colors \"blue,green\"",
+    "install-all": "npm install && cd server && npm install && cd ..",
+    "kill:3000": "node kill-port.js 3000",
+    "kill:5000": "node kill-port.js 5000",
+    "generate-icons": "node generate-icons.js"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.14",
+    "concurrently": "^8.2.2",
+    "postcss": "^8.4.24",
+    "sharp": "^0.34.5",
+    "tailwindcss": "^3.3.0",
+    "to-ico": "^1.1.5"
+  }
+}
