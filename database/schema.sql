@@ -5,6 +5,8 @@
 -- ============================================
 -- DROP EXISTING TABLES (for clean setup)
 -- ============================================
+DROP TABLE IF EXISTS task_emails CASCADE;
+DROP TABLE IF EXISTS task_dependencies CASCADE;
 DROP TABLE IF EXISTS task_attachments CASCADE;
 DROP TABLE IF EXISTS task_assignees CASCADE;
 DROP TABLE IF EXISTS task_comments CASCADE;
@@ -102,6 +104,10 @@ CREATE TABLE tasks (
     gmail_message_id VARCHAR(255),
     gmail_thread_id VARCHAR(255),
 
+    -- Hierarchical task support (sub-tasks)
+    parent_task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+    depth_level INTEGER DEFAULT 0,
+
     -- Metadata
     created_by INTEGER NOT NULL REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -174,6 +180,71 @@ CREATE TABLE task_comments (
 );
 
 -- ============================================
+-- TASK_DEPENDENCIES TABLE
+-- Stores task dependency relationships
+-- ============================================
+CREATE TABLE task_dependencies (
+    id SERIAL PRIMARY KEY,
+
+    -- The task that is dependent (blocked task)
+    dependent_task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+
+    -- The task that must be completed first (blocking task)
+    depends_on_task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+
+    -- Dependency type:
+    -- 'finish_to_start' (FS): Task B starts when Task A finishes (most common)
+    -- 'start_to_start' (SS): Task B starts when Task A starts
+    -- 'finish_to_finish' (FF): Task B finishes when Task A finishes
+    -- 'start_to_finish' (SF): Task B finishes when Task A starts (rare)
+    dependency_type VARCHAR(20) DEFAULT 'finish_to_start',
+
+    -- Lag time in days (can be negative for lead time)
+    lag_days INTEGER DEFAULT 0,
+
+    -- Link point percentages (for Gantt chart visual linking)
+    from_point INTEGER DEFAULT 100, -- end of source task
+    to_point INTEGER DEFAULT 0,     -- start of target task
+
+    -- Metadata
+    created_by INTEGER REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    -- Prevent circular dependencies (enforced at application level)
+    -- Prevent duplicate dependencies
+    UNIQUE(dependent_task_id, depends_on_task_id),
+
+    -- Prevent self-dependencies
+    CONSTRAINT no_self_dependency CHECK (dependent_task_id != depends_on_task_id)
+);
+
+-- ============================================
+-- TASK_EMAILS TABLE
+-- Stores Gmail messages attached to tasks
+-- ============================================
+CREATE TABLE task_emails (
+    id SERIAL PRIMARY KEY,
+    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+
+    -- Gmail message information
+    message_id VARCHAR(255) NOT NULL,
+    thread_id VARCHAR(255),
+    subject TEXT,
+    sender VARCHAR(500),
+    recipient VARCHAR(500),
+    email_date TIMESTAMP,
+    snippet TEXT,
+    has_attachments BOOLEAN DEFAULT FALSE,
+
+    -- Metadata
+    attached_by INTEGER REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    -- Prevent duplicate emails on same task
+    UNIQUE(task_id, message_id)
+);
+
+-- ============================================
 -- INDEXES for Performance
 -- ============================================
 CREATE INDEX idx_projects_owner ON projects(owner_id);
@@ -186,6 +257,7 @@ CREATE INDEX idx_tasks_project ON tasks(project_id);
 CREATE INDEX idx_tasks_status ON tasks(status);
 CREATE INDEX idx_tasks_created_by ON tasks(created_by);
 CREATE INDEX idx_tasks_position ON tasks(project_id, position);
+CREATE INDEX idx_tasks_parent ON tasks(parent_task_id);
 
 CREATE INDEX idx_task_assignees_task ON task_assignees(task_id);
 CREATE INDEX idx_task_assignees_user ON task_assignees(user_id);
@@ -196,6 +268,12 @@ CREATE INDEX idx_task_attachments_drive_file ON task_attachments(drive_file_id);
 
 CREATE INDEX idx_task_comments_task ON task_comments(task_id);
 CREATE INDEX idx_task_comments_user ON task_comments(user_id);
+
+CREATE INDEX idx_task_dependencies_dependent ON task_dependencies(dependent_task_id);
+CREATE INDEX idx_task_dependencies_depends_on ON task_dependencies(depends_on_task_id);
+
+CREATE INDEX idx_task_emails_task_id ON task_emails(task_id);
+CREATE INDEX idx_task_emails_message_id ON task_emails(message_id);
 
 -- ============================================
 -- TRIGGERS for updated_at timestamps
@@ -219,6 +297,111 @@ CREATE TRIGGER update_tasks_updated_at BEFORE UPDATE ON tasks
 
 CREATE TRIGGER update_task_comments_updated_at BEFORE UPDATE ON task_comments
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- HELPER VIEWS
+-- ============================================
+
+-- View to get task hierarchy (parent-child relationships)
+CREATE OR REPLACE VIEW task_hierarchy AS
+SELECT
+    t.id,
+    t.title,
+    t.parent_task_id,
+    t.depth_level,
+    t.project_id,
+    t.status,
+    pt.title as parent_title
+FROM tasks t
+LEFT JOIN tasks pt ON t.parent_task_id = pt.id;
+
+-- View to get all dependencies for a task
+CREATE OR REPLACE VIEW task_dependency_details AS
+SELECT
+    td.id,
+    td.dependent_task_id,
+    td.depends_on_task_id,
+    td.dependency_type,
+    td.lag_days,
+    td.from_point,
+    td.to_point,
+    t1.title as dependent_task_title,
+    t1.status as dependent_task_status,
+    t2.title as depends_on_task_title,
+    t2.status as depends_on_task_status,
+    t2.completed_at as depends_on_completed_at
+FROM task_dependencies td
+INNER JOIN tasks t1 ON td.dependent_task_id = t1.id
+INNER JOIN tasks t2 ON td.depends_on_task_id = t2.id;
+
+-- ============================================
+-- HELPER FUNCTIONS
+-- ============================================
+
+-- Function: Check for circular dependencies
+CREATE OR REPLACE FUNCTION check_circular_dependency(
+    p_dependent_task_id INTEGER,
+    p_depends_on_task_id INTEGER
+) RETURNS BOOLEAN AS $$
+DECLARE
+    v_has_cycle BOOLEAN;
+BEGIN
+    -- Use recursive CTE to detect cycles
+    WITH RECURSIVE dep_chain AS (
+        -- Base case: direct dependency
+        SELECT depends_on_task_id as task_id
+        FROM task_dependencies
+        WHERE dependent_task_id = p_depends_on_task_id
+
+        UNION
+
+        -- Recursive case: follow the chain
+        SELECT td.depends_on_task_id
+        FROM task_dependencies td
+        INNER JOIN dep_chain dc ON td.dependent_task_id = dc.task_id
+    )
+    SELECT EXISTS(
+        SELECT 1 FROM dep_chain WHERE task_id = p_dependent_task_id
+    ) INTO v_has_cycle;
+
+    RETURN v_has_cycle;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function: Get all sub-tasks recursively
+CREATE OR REPLACE FUNCTION get_all_subtasks(p_task_id INTEGER)
+RETURNS TABLE(
+    task_id INTEGER,
+    task_title VARCHAR,
+    task_status VARCHAR,
+    level INTEGER
+) AS $$
+BEGIN
+    RETURN QUERY
+    WITH RECURSIVE subtask_tree AS (
+        -- Base case: direct children
+        SELECT
+            t.id,
+            t.title,
+            t.status,
+            1 as level
+        FROM tasks t
+        WHERE t.parent_task_id = p_task_id
+
+        UNION ALL
+
+        -- Recursive case: children of children
+        SELECT
+            t.id,
+            t.title,
+            t.status,
+            st.level + 1
+        FROM tasks t
+        INNER JOIN subtask_tree st ON t.parent_task_id = st.id
+    )
+    SELECT id, title, status, level FROM subtask_tree;
+END;
+$$ LANGUAGE plpgsql;
 
 -- ============================================
 -- SAMPLE DATA (Optional - for testing)

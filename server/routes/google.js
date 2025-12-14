@@ -7,7 +7,10 @@ const {
   getGmailMessages,
   getGmailMessage,
   attachDriveFile,
-  listDriveFiles
+  listDriveFiles,
+  attachEmailToTask,
+  getTaskEmails,
+  deleteTaskEmail
 } = require('../controllers/googleController');
 
 // All routes require authentication
@@ -20,6 +23,11 @@ router.get('/contacts/search', searchContacts);
 // Gmail
 router.get('/gmail/messages', getGmailMessages);
 router.get('/gmail/messages/:messageId', getGmailMessage);
+
+// Email attachments
+router.post('/gmail/attach', attachEmailToTask);
+router.get('/gmail/task/:taskId/emails', getTaskEmails);
+router.delete('/gmail/emails/:emailId', deleteTaskEmail);
 
 // Drive
 router.get('/drive/files', listDriveFiles);

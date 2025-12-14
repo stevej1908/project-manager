@@ -103,6 +103,14 @@ export const googleAPI = {
       method: 'POST',
       body: JSON.stringify({ taskId, fileId }),
     }),
+  attachEmailToTask: (taskId, messageIds) =>
+    apiRequest('/google/gmail/attach', {
+      method: 'POST',
+      body: JSON.stringify({ taskId, messageIds }),
+    }),
+  getTaskEmails: (taskId) => apiRequest(`/google/gmail/task/${taskId}/emails`),
+  deleteTaskEmail: (emailId) =>
+    apiRequest(`/google/gmail/emails/${emailId}`, { method: 'DELETE' }),
 };
 
 // Users API

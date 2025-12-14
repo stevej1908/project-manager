@@ -12,11 +12,13 @@ import {
   Trash2,
   Link as LinkIcon,
   ExternalLink,
-  FolderOpen
+  FolderOpen,
+  Mail
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
-import { tasksAPI, dependenciesAPI } from '../services/api';
+import { tasksAPI, dependenciesAPI, googleAPI } from '../services/api';
 import DriveFilePicker from './DriveFilePicker';
+import EmailAttachmentModal from './EmailAttachmentModal';
 
 const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'urgent'];
 const STATUS_OPTIONS = ['todo', 'in_progress', 'review', 'done'];
@@ -39,6 +41,7 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
   const [task, setTask] = useState(null);
   const [comments, setComments] = useState([]);
   const [attachments, setAttachments] = useState([]);
+  const [emails, setEmails] = useState([]);
   const [dependencies, setDependencies] = useState([]);
   const [subTasks, setSubTasks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -63,6 +66,9 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
   // Drive picker state
   const [showDrivePicker, setShowDrivePicker] = useState(false);
 
+  // Email picker state
+  const [showEmailPicker, setShowEmailPicker] = useState(false);
+
   useEffect(() => {
     loadTaskDetails();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -71,9 +77,10 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
   const loadTaskDetails = async () => {
     try {
       setLoading(true);
-      const [taskResponse, depsData] = await Promise.all([
+      const [taskResponse, depsData, emailsData] = await Promise.all([
         tasksAPI.getById(taskId),
-        dependenciesAPI.getForTask(taskId)
+        dependenciesAPI.getForTask(taskId),
+        googleAPI.getTaskEmails(taskId)
       ]);
 
       const taskData = taskResponse.task; // Backend returns { task: {...} }
@@ -81,7 +88,13 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
       // Comments and attachments come from the task object
       setComments(taskData.comments || []);
       setAttachments(taskData.attachments || []);
-      setDependencies(depsData);
+      setEmails(emailsData.emails || []);
+      // Combine depends_on and blocks arrays into one
+      const allDeps = [
+        ...(depsData.depends_on || []),
+        ...(depsData.blocks || [])
+      ];
+      setDependencies(allDeps);
 
       // Load all tasks for dependency dropdown and sub-tasks
       const allTasksResponse = await tasksAPI.getAll(taskData.project_id);
@@ -140,7 +153,7 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
 
     try {
       setAddingComment(true);
-      const response = await tasksAPI.addComment(taskId, newComment);
+      await tasksAPI.addComment(taskId, newComment);
       // Reload task details to get updated comments
       await loadTaskDetails();
       setNewComment('');
@@ -168,7 +181,11 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
 
       // Reload dependencies
       const depsData = await dependenciesAPI.getForTask(taskId);
-      setDependencies(depsData);
+      const allDeps = [
+        ...(depsData.depends_on || []),
+        ...(depsData.blocks || [])
+      ];
+      setDependencies(allDeps);
 
       // Reset form
       setNewDependency({
@@ -192,7 +209,11 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
 
       // Reload dependencies
       const depsData = await dependenciesAPI.getForTask(taskId);
-      setDependencies(depsData);
+      const allDeps = [
+        ...(depsData.depends_on || []),
+        ...(depsData.blocks || [])
+      ];
+      setDependencies(allDeps);
 
       if (onUpdate) onUpdate();
     } catch (error) {
@@ -214,6 +235,22 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
     } catch (error) {
       console.error('Error deleting attachment:', error);
       alert('Failed to delete attachment');
+    }
+  };
+
+  const handleDeleteEmail = async (emailId) => {
+    if (!window.confirm('Remove this email attachment?')) return;
+
+    try {
+      await googleAPI.deleteTaskEmail(emailId);
+
+      // Reload task details
+      await loadTaskDetails();
+
+      if (onUpdate) onUpdate();
+    } catch (error) {
+      console.error('Error deleting email:', error);
+      alert('Failed to delete email attachment');
     }
   };
 
@@ -630,6 +667,75 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
                 </div>
               </div>
 
+              {/* Email Attachments */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                    <Mail className="w-4 h-4" />
+                    Emails ({emails.length})
+                  </label>
+                  <button
+                    onClick={() => setShowEmailPicker(true)}
+                    className="flex items-center gap-1 text-primary-600 hover:text-primary-700 p-1 text-sm"
+                    title="Attach emails from Gmail"
+                  >
+                    <Mail className="w-4 h-4" />
+                    <span className="text-xs">Gmail</span>
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {emails.map((email) => (
+                    <div key={email.id} className="bg-blue-50 rounded-lg p-3 flex items-start gap-3 border border-blue-100">
+                      {/* Email Icon */}
+                      <div className="w-10 h-10 bg-blue-100 rounded flex items-center justify-center flex-shrink-0">
+                        <Mail className="w-5 h-5 text-blue-600" />
+                      </div>
+
+                      {/* Email Info */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">
+                          {email.subject || '(No subject)'}
+                        </p>
+                        <p className="text-xs text-gray-600 truncate">
+                          From: {email.sender}
+                        </p>
+                        {email.email_date && (
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {format(parseISO(email.email_date), 'MMM d, yyyy')}
+                          </p>
+                        )}
+                        {email.snippet && (
+                          <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+                            {email.snippet}
+                          </p>
+                        )}
+                        <a
+                          href={`https://mail.google.com/mail/u/0/#inbox/${email.message_id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-primary-600 hover:underline flex items-center gap-1 mt-1"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          Open in Gmail
+                        </a>
+                      </div>
+
+                      {/* Delete Button */}
+                      <button
+                        onClick={() => handleDeleteEmail(email.id)}
+                        className="text-red-600 hover:text-red-700 p-1"
+                        title="Remove email"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                  {emails.length === 0 && (
+                    <p className="text-sm text-gray-500 py-2">No emails attached</p>
+                  )}
+                </div>
+              </div>
+
               {/* Dependencies */}
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -798,6 +904,15 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
           taskId={taskId}
           onClose={() => setShowDrivePicker(false)}
           onFileAttached={handleFileAttached}
+        />
+      )}
+
+      {/* Email Attachment Modal */}
+      {showEmailPicker && (
+        <EmailAttachmentModal
+          taskId={taskId}
+          onClose={() => setShowEmailPicker(false)}
+          onEmailsAttached={handleFileAttached}
         />
       )}
     </div>

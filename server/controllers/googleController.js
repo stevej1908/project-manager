@@ -313,10 +313,19 @@ const listDriveFiles = async (req, res) => {
     const auth = await getUserOAuth2Client(userId);
     const drive = google.drive({ version: 'v3', auth });
 
+    // Build proper Drive query syntax
+    let query = "trashed=false";
+    if (q && q.trim()) {
+      // Escape single quotes in the search query
+      const escapedQuery = q.trim().replace(/'/g, "\\'");
+      // Search in name and fullText (content)
+      query = `(name contains '${escapedQuery}' or fullText contains '${escapedQuery}') and trashed=false`;
+    }
+
     const response = await drive.files.list({
       pageSize: parseInt(pageSize),
       pageToken,
-      q: q || "trashed=false",
+      q: query,
       fields: 'nextPageToken, files(id, name, mimeType, size, webViewLink, thumbnailLink, createdTime, modifiedTime)',
       orderBy: 'modifiedTime desc'
     });
@@ -334,11 +343,201 @@ const listDriveFiles = async (req, res) => {
   }
 };
 
+// Attach Gmail email(s) to task
+const attachEmailToTask = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId, messageIds } = req.body; // messageIds can be array or single string
+
+    if (!taskId || !messageIds) {
+      return res.status(400).json({
+        error: 'Task ID and message ID(s) are required'
+      });
+    }
+
+    // Check if user has access to the task
+    const taskCheck = await pool.query(
+      `SELECT t.id FROM tasks t
+       INNER JOIN projects p ON t.project_id = p.id
+       LEFT JOIN project_members pm ON p.id = pm.project_id
+       WHERE t.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+      [taskId, userId]
+    );
+
+    if (taskCheck.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Task not found or access denied'
+      });
+    }
+
+    // Convert to array if single messageId provided
+    const messageIdArray = Array.isArray(messageIds) ? messageIds : [messageIds];
+
+    // Get email metadata from Gmail API
+    const auth = await getUserOAuth2Client(userId);
+    const gmail = google.gmail({ version: 'v1', auth });
+
+    const attachedEmails = [];
+
+    for (const messageId of messageIdArray) {
+      try {
+        const detail = await gmail.users.messages.get({
+          userId: 'me',
+          id: messageId,
+          format: 'metadata',
+          metadataHeaders: ['From', 'To', 'Subject', 'Date']
+        });
+
+        const headers = detail.data.payload.headers;
+        const message = detail.data;
+
+        const subject = headers.find(h => h.name === 'Subject')?.value || '';
+        const from = headers.find(h => h.name === 'From')?.value || '';
+        const to = headers.find(h => h.name === 'To')?.value || '';
+        const dateStr = headers.find(h => h.name === 'Date')?.value || '';
+
+        // Check if email has attachments
+        const hasAttachments = message.payload.parts
+          ? message.payload.parts.some(part => part.filename && part.filename.length > 0)
+          : false;
+
+        // Parse date
+        let emailDate = null;
+        if (dateStr) {
+          try {
+            emailDate = new Date(dateStr);
+          } catch (e) {
+            console.error('Error parsing date:', e);
+          }
+        }
+
+        // Save to database
+        const result = await pool.query(
+          `INSERT INTO task_emails (
+            task_id, message_id, thread_id, subject, sender,
+            recipient, email_date, snippet, has_attachments, attached_by
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          ON CONFLICT (task_id, message_id) DO NOTHING
+          RETURNING *`,
+          [
+            taskId,
+            message.id,
+            message.threadId,
+            subject,
+            from,
+            to,
+            emailDate,
+            message.snippet,
+            hasAttachments,
+            userId
+          ]
+        );
+
+        if (result.rows.length > 0) {
+          attachedEmails.push(result.rows[0]);
+        }
+      } catch (err) {
+        console.error(`Error attaching email ${messageId}:`, err);
+      }
+    }
+
+    res.status(201).json({
+      emails: attachedEmails,
+      count: attachedEmails.length
+    });
+  } catch (error) {
+    console.error('Error attaching emails to task:', error);
+    res.status(500).json({
+      error: 'Failed to attach emails',
+      message: error.message
+    });
+  }
+};
+
+// Get emails attached to a task
+const getTaskEmails = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId } = req.params;
+
+    // Check if user has access to the task
+    const taskCheck = await pool.query(
+      `SELECT t.id FROM tasks t
+       INNER JOIN projects p ON t.project_id = p.id
+       LEFT JOIN project_members pm ON p.id = pm.project_id
+       WHERE t.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+      [taskId, userId]
+    );
+
+    if (taskCheck.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Task not found or access denied'
+      });
+    }
+
+    const result = await pool.query(
+      `SELECT e.*, u.name as attached_by_name, u.email as attached_by_email
+       FROM task_emails e
+       LEFT JOIN users u ON e.attached_by = u.id
+       WHERE e.task_id = $1
+       ORDER BY e.email_date DESC`,
+      [taskId]
+    );
+
+    res.json({ emails: result.rows });
+  } catch (error) {
+    console.error('Error getting task emails:', error);
+    res.status(500).json({
+      error: 'Failed to get task emails',
+      message: error.message
+    });
+  }
+};
+
+// Delete email attachment
+const deleteTaskEmail = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { emailId } = req.params;
+
+    // Check if user has access to the task
+    const result = await pool.query(
+      `DELETE FROM task_emails e
+       USING tasks t, projects p
+       LEFT JOIN project_members pm ON p.id = pm.project_id
+       WHERE e.id = $1
+       AND e.task_id = t.id
+       AND t.project_id = p.id
+       AND (p.owner_id = $2 OR pm.user_id = $2)
+       RETURNING e.id`,
+      [emailId, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Email attachment not found or access denied'
+      });
+    }
+
+    res.json({ message: 'Email attachment deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting email attachment:', error);
+    res.status(500).json({
+      error: 'Failed to delete email attachment',
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getContacts,
   searchContacts,
   getGmailMessages,
   getGmailMessage,
   attachDriveFile,
-  listDriveFiles
+  listDriveFiles,
+  attachEmailToTask,
+  getTaskEmails,
+  deleteTaskEmail
 };
