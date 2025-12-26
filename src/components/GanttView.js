@@ -47,8 +47,11 @@ export default function GanttView({ projectId }) {
         dependenciesAPI.getAll(projectId)
       ]);
 
-      setTasks(tasksResponse.tasks || []);
-      setDependencies(depsResponse.dependencies || []);
+      const tasks = tasksResponse.tasks || [];
+      const deps = depsResponse.dependencies || [];
+
+      setTasks(tasks);
+      setDependencies(deps);
     } catch (err) {
       console.error('Error loading Gantt data:', err);
       setError(err.message || 'Failed to load Gantt chart data');
@@ -85,9 +88,19 @@ export default function GanttView({ projectId }) {
   };
 
   // Handle task modal update
-  const handleModalUpdate = () => {
-    // Reload data to get updated task info
-    loadData();
+  const handleModalUpdate = async (updatedTask) => {
+    // Instead of reloading all data, just update the specific task
+    // This prevents the Gantt chart from being destroyed and recreated
+    if (updatedTask) {
+      setTasks(prevTasks =>
+        prevTasks.map(task =>
+          task.id === updatedTask.id ? updatedTask : task
+        )
+      );
+    } else {
+      // If no specific task provided, reload all data
+      loadData();
+    }
   };
 
   // Toggle status filter

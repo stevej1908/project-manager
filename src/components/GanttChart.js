@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Gantt from 'frappe-gantt';
 import { format, parseISO, addDays } from 'date-fns';
+import '../styles/frappe-gantt.css';
 
 /**
  * GanttChart Component
@@ -23,6 +24,9 @@ export default function GanttChart({
 }) {
   const ganttContainer = useRef(null);
   const ganttInstance = useRef(null);
+  const isInitialized = useRef(false);
+  const taskNamesRef = useRef(null);
+  const ganttScrollRef = useRef(null);
   const [currentViewMode, setCurrentViewMode] = useState(viewMode);
 
   // Calculate progress based on subtasks or status
@@ -57,9 +61,6 @@ export default function GanttChart({
   // Calculate critical path using CPM (Critical Path Method)
   const calculateCriticalPath = useCallback(() => {
     if (tasks.length === 0) return new Set();
-
-    // Build task map for quick lookup
-    const taskMap = new Map(tasks.map(t => [t.id, t]));
 
     // Calculate duration for each task (in days)
     const durations = new Map();
@@ -164,11 +165,49 @@ export default function GanttChart({
     return criticalTasks;
   }, [tasks, dependencies]);
 
+  // Sort tasks hierarchically (parents followed by their children)
+  const sortTasksHierarchically = useCallback((tasksToSort) => {
+    const sorted = [];
+    const taskMap = new Map(tasksToSort.map(t => [t.id, t]));
+    const processed = new Set();
+
+    const addTaskAndChildren = (task) => {
+      if (processed.has(task.id)) return;
+
+      sorted.push(task);
+      processed.add(task.id);
+
+      // Find and add immediate children
+      const children = tasksToSort
+        .filter(t => t.parent_task_id === task.id)
+        .sort((a, b) => (a.position || 0) - (b.position || 0));
+
+      children.forEach(child => addTaskAndChildren(child));
+    };
+
+    // First add all root tasks (no parent)
+    const rootTasks = tasksToSort
+      .filter(t => !t.parent_task_id)
+      .sort((a, b) => (a.position || 0) - (b.position || 0));
+
+    rootTasks.forEach(task => addTaskAndChildren(task));
+
+    // Add any remaining tasks that weren't processed (orphans)
+    tasksToSort.forEach(task => {
+      if (!processed.has(task.id)) {
+        sorted.push(task);
+      }
+    });
+
+    return sorted;
+  }, []);
+
   // Transform tasks to Gantt format
   const transformTasksForGantt = useCallback(() => {
     const criticalPath = calculateCriticalPath();
+    const sortedTasks = sortTasksHierarchically(tasks);
 
-    return tasks.map(task => {
+    return sortedTasks.map(task => {
       // Ensure tasks have valid dates
       const start = task.start_date ? parseISO(task.start_date) : new Date();
       const end = task.end_date ? parseISO(task.end_date) : addDays(start, 1);
@@ -178,15 +217,17 @@ export default function GanttChart({
         .filter(dep => dep.dependent_task_id === task.id)
         .map(dep => `task_${dep.depends_on_task_id}`);
 
-      const classes = ['priority-' + task.priority, 'status-' + task.status];
-      if (task.parent_task_id) {
-        classes.push('subtask');
-      }
-
-      // Add critical path indicator
+      // Build a single compound class name (no spaces) for frappe-gantt
+      // frappe-gantt's classList.add() doesn't handle space-separated classes
       const isCritical = criticalPath.has(task.id);
+      let customClass = `priority-${task.priority}`;
+
+      // Add additional class modifiers as suffixes to create unique compound classes
+      if (task.parent_task_id) {
+        customClass += '-subtask';
+      }
       if (isCritical) {
-        classes.push('critical-path');
+        customClass += '-critical';
       }
 
       const progress = calculateProgress(task);
@@ -199,27 +240,46 @@ export default function GanttChart({
         end: format(end, 'yyyy-MM-dd'),
         progress: progress,
         dependencies: taskDeps.join(', '),
-        custom_class: classes.join(' '),
+        custom_class: customClass,
         // Store original task data for callbacks
         _task: task,
         _assignees: assignees,
         _isCritical: isCritical
       };
     });
-  }, [tasks, dependencies, calculateCriticalPath]);
+  }, [tasks, dependencies, calculateCriticalPath, calculateProgress, getAssigneeNames, sortTasksHierarchically]);
 
   // Initialize or update Gantt chart
   useEffect(() => {
-    if (!ganttContainer.current || tasks.length === 0) return;
+    if (!ganttContainer.current || tasks.length === 0) {
+      return;
+    }
 
-    const ganttTasks = transformTasksForGantt();
+    // Small delay to ensure container has dimensions
+    const timeoutId = setTimeout(() => {
+      const ganttTasks = transformTasksForGantt();
 
-    if (ganttInstance.current) {
-      // Update existing instance
-      ganttInstance.current.refresh(ganttTasks);
-    } else {
-      // Create new instance
-      ganttInstance.current = new Gantt(ganttContainer.current, ganttTasks, {
+      if (ganttInstance.current && isInitialized.current) {
+        // Update existing instance
+        try {
+          ganttInstance.current.refresh(ganttTasks);
+        } catch (error) {
+          console.error('Error refreshing Gantt:', error);
+          // If refresh fails, destroy and recreate
+          ganttInstance.current = null;
+          isInitialized.current = false;
+        }
+      }
+
+      if (!ganttInstance.current || !isInitialized.current) {
+        // Create new instance
+        try {
+          // Ensure container has explicit dimensions
+          if (!ganttContainer.current.style.width) {
+            ganttContainer.current.style.width = '100%';
+          }
+
+        ganttInstance.current = new Gantt(ganttContainer.current, ganttTasks, {
         view_mode: currentViewMode,
         language: 'en',
         bar_height: 30,
@@ -263,16 +323,57 @@ export default function GanttChart({
           }
         }
       });
-    }
 
-    // Cleanup
+        isInitialized.current = true;
+      } catch (error) {
+        console.error('Error creating Gantt instance:', error);
+      }
+      }
+    }, 100); // 100ms delay to ensure container has dimensions
+
+    // Cleanup - only clear timeout, don't destroy instance on every render
+    return () => {
+      clearTimeout(timeoutId);
+      // Don't destroy ganttInstance here - it causes bars to disappear
+      // Instance will be cleaned up on component unmount
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, dependencies]); // Removed currentViewMode - view changes handled by changeViewMode()
+
+  // Synchronize scroll between task names and Gantt chart
+  useEffect(() => {
+    const taskNamesEl = taskNamesRef.current;
+    const ganttScrollEl = ganttScrollRef.current;
+
+    if (!taskNamesEl || !ganttScrollEl) return;
+
+    const syncScroll = (source, target) => {
+      return () => {
+        target.scrollTop = source.scrollTop;
+      };
+    };
+
+    const handleTaskNamesScroll = syncScroll(taskNamesEl, ganttScrollEl);
+    const handleGanttScroll = syncScroll(ganttScrollEl, taskNamesEl);
+
+    taskNamesEl.addEventListener('scroll', handleTaskNamesScroll);
+    ganttScrollEl.addEventListener('scroll', handleGanttScroll);
+
+    return () => {
+      taskNamesEl?.removeEventListener('scroll', handleTaskNamesScroll);
+      ganttScrollEl?.removeEventListener('scroll', handleGanttScroll);
+    };
+  }, [tasks]); // Re-attach when tasks change
+
+  // Cleanup on component unmount
+  useEffect(() => {
     return () => {
       if (ganttInstance.current) {
         ganttInstance.current = null;
       }
+      isInitialized.current = false;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, dependencies, currentViewMode]);
+  }, []); // Empty dependency array = only run on mount/unmount
 
   // Change view mode
   const changeViewMode = (mode) => {
@@ -303,10 +404,56 @@ export default function GanttChart({
 
       {/* Gantt Chart Container */}
       {tasks.length > 0 ? (
-        <div
-          ref={ganttContainer}
-          className="gantt-chart bg-white rounded-lg shadow-sm border border-gray-200 p-4"
-        />
+        <div className="gantt-wrapper bg-white rounded-lg shadow-sm border border-gray-200 flex" style={{ maxHeight: '70vh' }}>
+          {/* Sticky Task Names Column */}
+          <div
+            ref={taskNamesRef}
+            className="gantt-task-names sticky left-0 bg-white border-r border-gray-200 z-10 overflow-y-auto"
+            style={{ minWidth: '250px', maxWidth: '250px', maxHeight: '70vh' }}
+          >
+            <div className="font-semibold text-sm text-gray-700 p-4 border-b border-gray-200 sticky top-0 bg-white z-20" style={{ height: '60px' }}>
+              Task Name
+            </div>
+            <div className="task-names-list">
+              {sortTasksHierarchically(tasks).map((task, index) => (
+                <div
+                  key={task.id}
+                  className="task-name-item px-4 py-3 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer truncate"
+                  style={{ height: '48px', display: 'flex', alignItems: 'center' }}
+                  onClick={() => onTaskClick && onTaskClick(task)}
+                  title={task.title}
+                >
+                  <span className={`${task.parent_task_id ? 'ml-4 text-gray-600' : 'font-medium text-gray-900'}`}>
+                    {task.title}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Gantt Chart */}
+          <div className="flex-1 relative">
+            {/* Sticky Timeline Header Overlay */}
+            <div className="sticky top-0 z-40 bg-white border-b border-gray-200" style={{ height: '60px' }}>
+              <div className="text-sm font-semibold text-gray-700 px-4 py-4">
+                Timeline
+              </div>
+            </div>
+
+            {/* Scrollable Gantt Container */}
+            <div
+              ref={ganttScrollRef}
+              className="overflow-auto gantt-scroll-wrapper"
+              style={{ maxHeight: 'calc(70vh - 60px)', position: 'relative' }}
+            >
+              <div
+                ref={ganttContainer}
+                className="gantt-chart p-4"
+                style={{ height: 'auto', minWidth: '800px' }}
+              />
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="text-center py-12 text-gray-500">
           <p>No tasks with dates to display in Gantt chart</p>
@@ -315,78 +462,137 @@ export default function GanttChart({
       )}
 
       {/* Custom Styles */}
-      <style jsx>{`
+      <style>{`
         .gantt-chart-container {
           width: 100%;
         }
 
-        .gantt-chart {
-          overflow-x: auto;
+        .gantt-wrapper {
+          position: relative;
+          overflow: hidden;
         }
 
-        /* Task bar colors by priority */
-        :global(.bar.priority-low) {
+        .gantt-task-names {
+          overflow-y: auto;
+          overflow-x: hidden;
+          flex-shrink: 0;
+        }
+
+        .gantt-chart {
+          position: relative;
+          min-height: 400px;
+        }
+
+        /* Ensure SVG renders properly during scroll */
+        .gantt svg {
+          display: block;
+          width: 100%;
+          height: auto;
+        }
+
+        /* Fix for bars disappearing on scroll */
+        .gantt .bar-wrapper {
+          pointer-events: auto;
+        }
+
+        /* Ensure proper rendering and prevent black screen on scroll */
+        .gantt-scroll-wrapper {
+          -webkit-overflow-scrolling: touch;
+          backface-visibility: hidden;
+          transform: translateZ(0);
+        }
+
+        /* Smooth scrolling */
+        .gantt-task-names,
+        .gantt-scroll-container {
+          scroll-behavior: smooth;
+        }
+
+        /* Gantt scroll wrapper configuration */
+        .gantt-scroll-wrapper {
+          position: relative;
+        }
+
+        /* The frappe-gantt .grid-header already has position:sticky in the library CSS */
+        /* Just ensure it has proper z-index and background */
+        .gantt-container .grid-header {
+          z-index: 50 !important;
+          background: white !important;
+        }
+
+        /* Make task names header match timeline header height and behavior */
+        .gantt-task-names > div:first-child {
+          position: sticky !important;
+          top: 0 !important;
+          z-index: 51 !important;
+          background: white !important;
+        }
+
+        /* Task bar colors by priority - frappe-gantt applies custom_class to bar-wrapper */
+        .bar-wrapper[class*="priority-low"] .bar {
           fill: #9ca3af !important;
         }
 
-        :global(.bar.priority-medium) {
+        .bar-wrapper[class*="priority-medium"] .bar {
           fill: #3b82f6 !important;
         }
 
-        :global(.bar.priority-high) {
+        .bar-wrapper[class*="priority-high"] .bar {
           fill: #f59e0b !important;
         }
 
-        :global(.bar.priority-urgent) {
+        .bar-wrapper[class*="priority-urgent"] .bar {
           fill: #ef4444 !important;
         }
 
         /* Subtask styling */
-        :global(.bar.subtask) {
+        .bar-wrapper[class*="-subtask"] .bar {
           opacity: 0.7;
           height: 20px !important;
         }
 
-        /* Status styling */
-        :global(.bar.status-done) {
-          fill: #10b981 !important;
-        }
-
         /* Critical path styling */
-        :global(.bar.critical-path) {
+        .bar-wrapper[class*="-critical"] .bar {
           stroke: #dc2626 !important;
           stroke-width: 3px !important;
           filter: drop-shadow(0 2px 4px rgba(220, 38, 38, 0.4));
         }
 
+        /* Fallback: ensure all bars have visible color */
+        .gantt .bar {
+          fill: #3b82f6 !important;
+          stroke: #1e40af !important;
+          stroke-width: 1px !important;
+        }
+
         /* Gantt popup styling */
-        :global(.gantt-popup) {
+        .gantt-popup {
           padding: 12px;
           min-width: 250px;
         }
 
-        :global(.gantt-popup-title) {
+        .gantt-popup-title {
           font-weight: 600;
           font-size: 14px;
           margin-bottom: 8px;
           color: #1f2937;
         }
 
-        :global(.gantt-popup-content) {
+        .gantt-popup-content {
           font-size: 12px;
           color: #6b7280;
         }
 
-        :global(.gantt-popup-content p) {
+        .gantt-popup-content p {
           margin: 4px 0;
         }
 
-        :global(.gantt-popup-content strong) {
+        .gantt-popup-content strong {
           color: #374151;
         }
 
         /* Status and Priority badges in popup */
-        :global(.status-badge), :global(.priority-badge) {
+        .status-badge, .priority-badge {
           padding: 2px 8px;
           border-radius: 4px;
           font-size: 11px;
@@ -394,47 +600,47 @@ export default function GanttChart({
           text-transform: capitalize;
         }
 
-        :global(.status-todo) {
+        .status-todo {
           background: #f3f4f6;
           color: #6b7280;
         }
 
-        :global(.status-in_progress) {
+        .status-in_progress {
           background: #dbeafe;
           color: #1e40af;
         }
 
-        :global(.status-review) {
+        .status-review {
           background: #fef3c7;
           color: #92400e;
         }
 
-        :global(.status-done) {
+        .status-done {
           background: #d1fae5;
           color: #065f46;
         }
 
-        :global(.priority-low) {
+        .priority-low {
           background: #f3f4f6;
           color: #6b7280;
         }
 
-        :global(.priority-medium) {
+        .priority-medium {
           background: #dbeafe;
           color: #1e40af;
         }
 
-        :global(.priority-high) {
+        .priority-high {
           background: #fed7aa;
           color: #92400e;
         }
 
-        :global(.priority-urgent) {
+        .priority-urgent {
           background: #fecaca;
           color: #991b1b;
         }
 
-        :global(.critical-badge) {
+        .critical-badge {
           display: inline-block;
           margin-left: 8px;
           padding: 2px 6px;

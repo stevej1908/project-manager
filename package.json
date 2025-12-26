@@ -22,6 +22,9 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:setup": "playwright test --project=setup --headed",
     "eject": "react-scripts eject",
     "server": "cd server && npm run dev",
     "dev": "concurrently \"npm run server\" \"npm start\" --names \"SERVER,CLIENT\" --prefix-colors \"blue,green\"",
@@ -49,9 +52,12 @@
     ]
   },
   "devDependencies": {
+    "@playwright/test": "^1.40.0",
     "autoprefixer": "^10.4.14",
     "concurrently": "^8.2.2",
+    "pg": "^8.16.3",
     "postcss": "^8.4.24",
+    "puppeteer": "^24.33.0",
     "sharp": "^0.34.5",
     "tailwindcss": "^3.3.0",
     "to-ico": "^1.1.5"
