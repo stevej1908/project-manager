@@ -611,11 +611,11 @@ export default function GanttChart({
             <div
               ref={ganttScrollRef}
               className="overflow-auto gantt-scroll-wrapper"
-              style={{ maxHeight: 'calc(70vh - 60px)', position: 'relative' }}
+              style={{ maxHeight: 'calc(70vh - 60px)', maxWidth: '100%', position: 'relative' }}
             >
               <div
                 ref={ganttContainer}
-                className="gantt-chart p-4"
+                className="gantt-chart"
                 style={{ height: 'auto', minWidth: '800px' }}
               />
             </div>
