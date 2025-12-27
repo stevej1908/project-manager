@@ -599,7 +599,7 @@ export default function GanttChart({
           </div>
 
           {/* Gantt Chart */}
-          <div className="flex-1 relative">
+          <div className="flex-1 relative" style={{ minWidth: 0 }}>
             {/* Sticky Timeline Header Overlay */}
             <div className="sticky top-0 z-40 bg-white border-b border-gray-200" style={{ height: '60px' }}>
               <div className="text-sm font-semibold text-gray-700 px-4 py-4">
@@ -611,7 +611,7 @@ export default function GanttChart({
             <div
               ref={ganttScrollRef}
               className="overflow-auto gantt-scroll-wrapper"
-              style={{ maxHeight: 'calc(70vh - 60px)', maxWidth: '100%', position: 'relative' }}
+              style={{ maxHeight: 'calc(70vh - 60px)', position: 'relative' }}
             >
               <div
                 ref={ganttContainer}
