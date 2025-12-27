@@ -474,14 +474,9 @@ export default function GanttChart({
       // Scroll to today's date after view mode change
       setTimeout(() => {
         if (ganttInstance.current) {
-          // Find today's position and scroll to it
-          const today = new Date();
-          const ganttScrollEl = ganttScrollRef.current;
-          if (ganttScrollEl) {
-            // Frappe Gantt automatically centers on the scroll_to date
-            // But we'll ensure it's visible after view change
-            ganttInstance.current.scroll_today();
-          }
+          // Frappe Gantt automatically centers on the scroll_to date
+          // Ensure it's visible after view change
+          ganttInstance.current.scroll_today();
         }
 
         // Re-add date labels after view mode change
