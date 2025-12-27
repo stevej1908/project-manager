@@ -24,11 +24,20 @@ function Router() {
   }
 
   if (path === '/auth/error') {
+    const params = new URLSearchParams(window.location.search);
+    const errorMessage = params.get('message') || params.get('error') || 'Unknown error';
+
     return (
-      <div className="h-screen flex items-center justify-center">
-        <div className="text-center">
+      <div className="h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center max-w-2xl p-8">
           <h1 className="text-2xl font-bold text-red-600 mb-4">Authentication Error</h1>
           <p className="text-gray-600 mb-4">There was an error signing in. Please try again.</p>
+          <div className="mb-6 bg-white border-2 border-red-200 rounded-lg p-4">
+            <p className="text-xs text-gray-500 mb-2 font-semibold">ERROR DETAILS:</p>
+            <pre className="text-left text-xs text-red-700 whitespace-pre-wrap break-all font-mono">
+              {errorMessage}
+            </pre>
+          </div>
           <button
             onClick={() => window.location.href = '/'}
             className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
