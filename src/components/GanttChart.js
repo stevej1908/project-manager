@@ -30,7 +30,7 @@ export default function GanttChart({
   const [currentViewMode, setCurrentViewMode] = useState(viewMode);
 
   // Calculate progress based on subtasks or status
-  const calculateProgress = (task) => {
+  const calculateProgress = useCallback((task) => {
     if (task.subtask_count > 0) {
       // For parent tasks, calculate based on subtasks
       const subtasks = tasks.filter(t => t.parent_task_id === task.id);
@@ -48,15 +48,15 @@ export default function GanttChart({
         default: return 0;
       }
     }
-  };
+  }, [tasks]);
 
   // Get assignee names
-  const getAssigneeNames = (task) => {
+  const getAssigneeNames = useCallback((task) => {
     if (!task.assignees || task.assignees.length === 0) return 'Unassigned';
     return task.assignees
       .map(a => a.contact_name || a.user_name || 'Unknown')
       .join(', ');
-  };
+  }, []);
 
   // Calculate critical path using CPM (Critical Path Method)
   const calculateCriticalPath = useCallback(() => {
@@ -168,7 +168,6 @@ export default function GanttChart({
   // Sort tasks hierarchically (parents followed by their children)
   const sortTasksHierarchically = useCallback((tasksToSort) => {
     const sorted = [];
-    const taskMap = new Map(tasksToSort.map(t => [t.id, t]));
     const processed = new Set();
 
     const addTaskAndChildren = (task) => {
