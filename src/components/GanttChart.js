@@ -496,15 +496,30 @@ export default function GanttChart({
   // Scroll left/right
   const scrollHorizontal = (direction) => {
     const ganttScrollEl = ganttScrollRef.current;
+    console.log('Scroll button clicked!', direction);
+    console.log('ganttScrollRef.current:', ganttScrollEl);
+
     if (ganttScrollEl) {
       const scrollAmount = 300; // pixels
       const currentScroll = ganttScrollEl.scrollLeft;
+      console.log('Current scroll position:', currentScroll);
+      console.log('Scroll width:', ganttScrollEl.scrollWidth);
+      console.log('Client width:', ganttScrollEl.clientWidth);
+
       const newScroll = direction === 'left' ? currentScroll - scrollAmount : currentScroll + scrollAmount;
+      console.log('New scroll position:', newScroll);
 
       ganttScrollEl.scrollTo({
         left: newScroll,
         behavior: 'smooth'
       });
+
+      // Also try scrollLeft directly as a fallback
+      setTimeout(() => {
+        ganttScrollEl.scrollLeft = newScroll;
+      }, 100);
+    } else {
+      console.log('ganttScrollRef.current is null!');
     }
   };
 
