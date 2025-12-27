@@ -409,8 +409,8 @@ export default function GanttChart({
                 const actualRowHeight = secondY - firstY;
 
                 console.log('Frappe-Gantt actual row height:', actualRowHeight);
-                console.log('Our task name row height: 66px');
-                console.log('Difference:', Math.abs(actualRowHeight - 66));
+                console.log('Our task name row height: 48px');
+                console.log('Difference:', Math.abs(actualRowHeight - 48));
               }
             }
           }
