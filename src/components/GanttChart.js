@@ -392,9 +392,28 @@ export default function GanttChart({
 
         isInitialized.current = true;
 
-        // Add date labels to bars
+        // Add date labels to bars and calculate exact row heights
         setTimeout(() => {
           addDateLabelsToBars(ganttTasks);
+
+          // Calculate actual Gantt row height for perfect alignment
+          if (ganttContainer.current) {
+            const bars = ganttContainer.current.querySelectorAll('.bar-wrapper');
+            if (bars.length >= 2) {
+              const firstBar = bars[0].querySelector('.bar');
+              const secondBar = bars[1].querySelector('.bar');
+
+              if (firstBar && secondBar) {
+                const firstY = parseFloat(firstBar.getAttribute('y'));
+                const secondY = parseFloat(secondBar.getAttribute('y'));
+                const actualRowHeight = secondY - firstY;
+
+                console.log('Frappe-Gantt actual row height:', actualRowHeight);
+                console.log('Our task name row height: 66px');
+                console.log('Difference:', Math.abs(actualRowHeight - 66));
+              }
+            }
+          }
         }, 200);
       } catch (error) {
         console.error('Error creating Gantt instance:', error);
@@ -484,8 +503,11 @@ export default function GanttChart({
     const ganttScrollEl = ganttScrollRef.current;
     if (ganttScrollEl) {
       const scrollAmount = 300; // pixels
-      ganttScrollEl.scrollBy({
-        left: direction === 'left' ? -scrollAmount : scrollAmount,
+      const currentScroll = ganttScrollEl.scrollLeft;
+      const newScroll = direction === 'left' ? currentScroll - scrollAmount : currentScroll + scrollAmount;
+
+      ganttScrollEl.scrollTo({
+        left: newScroll,
         behavior: 'smooth'
       });
     }
@@ -554,7 +576,7 @@ export default function GanttChart({
                 <div
                   key={task.id}
                   className="task-name-item px-4 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer truncate"
-                  style={{ height: '66px', display: 'flex', alignItems: 'center' }}
+                  style={{ height: '48px', display: 'flex', alignItems: 'center' }}
                   onClick={() => onTaskClick && onTaskClick(task)}
                   title={task.title}
                 >
