@@ -201,6 +201,68 @@ export default function GanttChart({
     return sorted;
   }, []);
 
+  // Add date labels to Gantt bars
+  const addDateLabelsToBars = useCallback((ganttTasks) => {
+    if (!ganttContainer.current) return;
+
+    // Find all bar groups in the SVG
+    const barGroups = ganttContainer.current.querySelectorAll('.bar-wrapper');
+
+    barGroups.forEach((barGroup, index) => {
+      const task = ganttTasks[index];
+      if (!task) return;
+
+      // Find the bar rect element
+      const barRect = barGroup.querySelector('.bar');
+      if (!barRect) return;
+
+      // Get bar dimensions and position
+      const barX = parseFloat(barRect.getAttribute('x'));
+      const barY = parseFloat(barRect.getAttribute('y'));
+      const barWidth = parseFloat(barRect.getAttribute('width'));
+      const barHeight = parseFloat(barRect.getAttribute('height'));
+
+      // Format dates
+      const startDate = format(parseISO(task.start), 'MMM d');
+      const endDate = format(parseISO(task.end), 'MMM d');
+
+      // Remove existing date labels if any
+      const existingLabels = barGroup.querySelectorAll('.date-label');
+      existingLabels.forEach(label => label.remove());
+
+      // Create SVG text elements for dates
+      const svg = barGroup.closest('svg');
+      const svgNS = svg.namespaceURI;
+
+      // Only add dates if bar is wide enough (at least 80px)
+      if (barWidth >= 80) {
+        // Start date label (left side)
+        const startText = document.createElementNS(svgNS, 'text');
+        startText.setAttribute('class', 'date-label');
+        startText.setAttribute('x', barX + 5);
+        startText.setAttribute('y', barY + barHeight / 2);
+        startText.setAttribute('font-size', '10px');
+        startText.setAttribute('fill', '#666');
+        startText.setAttribute('dominant-baseline', 'central');
+        startText.textContent = startDate;
+
+        // End date label (right side)
+        const endText = document.createElementNS(svgNS, 'text');
+        endText.setAttribute('class', 'date-label');
+        endText.setAttribute('x', barX + barWidth - 5);
+        endText.setAttribute('y', barY + barHeight / 2);
+        endText.setAttribute('font-size', '10px');
+        endText.setAttribute('fill', '#666');
+        endText.setAttribute('text-anchor', 'end');
+        endText.setAttribute('dominant-baseline', 'central');
+        endText.textContent = endDate;
+
+        barGroup.appendChild(startText);
+        barGroup.appendChild(endText);
+      }
+    });
+  }, []);
+
   // Transform tasks to Gantt format
   const transformTasksForGantt = useCallback(() => {
     const criticalPath = calculateCriticalPath();
@@ -262,6 +324,10 @@ export default function GanttChart({
         // Update existing instance
         try {
           ganttInstance.current.refresh(ganttTasks);
+          // Re-add date labels after refresh
+          setTimeout(() => {
+            addDateLabelsToBars(ganttTasks);
+          }, 200);
         } catch (error) {
           console.error('Error refreshing Gantt:', error);
           // If refresh fails, destroy and recreate
@@ -281,10 +347,10 @@ export default function GanttChart({
         ganttInstance.current = new Gantt(ganttContainer.current, ganttTasks, {
         view_mode: currentViewMode,
         language: 'en',
-        bar_height: 30,
+        bar_height: 36,
         bar_corner_radius: 3,
         arrow_curve: 5,
-        padding: 18,
+        padding: 6,
         date_format: 'YYYY-MM-DD',
         custom_popup_html: function(task) {
           const originalTask = task._task;
@@ -324,6 +390,11 @@ export default function GanttChart({
       });
 
         isInitialized.current = true;
+
+        // Add date labels to bars
+        setTimeout(() => {
+          addDateLabelsToBars(ganttTasks);
+        }, 200);
       } catch (error) {
         console.error('Error creating Gantt instance:', error);
       }
@@ -379,6 +450,11 @@ export default function GanttChart({
     setCurrentViewMode(mode);
     if (ganttInstance.current) {
       ganttInstance.current.change_view_mode(mode);
+      // Re-add date labels after view mode change
+      setTimeout(() => {
+        const ganttTasks = transformTasksForGantt();
+        addDateLabelsToBars(ganttTasks);
+      }, 200);
     }
   };
 
@@ -417,8 +493,8 @@ export default function GanttChart({
               {sortTasksHierarchically(tasks).map((task, index) => (
                 <div
                   key={task.id}
-                  className="task-name-item px-4 py-3 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer truncate"
-                  style={{ height: '48px', display: 'flex', alignItems: 'center' }}
+                  className="task-name-item px-4 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer truncate"
+                  style={{ height: '42px', display: 'flex', alignItems: 'center' }}
                   onClick={() => onTaskClick && onTaskClick(task)}
                   title={task.title}
                 >
