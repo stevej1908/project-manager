@@ -102,12 +102,12 @@ const handleGoogleCallback = async (req, res) => {
     );
 
     // Redirect to frontend with token
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').trim();
     res.redirect(`${frontendUrl}/auth/callback?token=${jwtToken}`);
 
   } catch (error) {
     console.error('Error in Google callback:', error);
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').trim();
     res.redirect(`${frontendUrl}/auth/error?message=${encodeURIComponent(error.message)}`);
   }
 };
