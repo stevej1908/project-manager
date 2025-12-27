@@ -347,11 +347,12 @@ export default function GanttChart({
         ganttInstance.current = new Gantt(ganttContainer.current, ganttTasks, {
         view_mode: currentViewMode,
         language: 'en',
-        bar_height: 36,
+        bar_height: 30,
         bar_corner_radius: 3,
         arrow_curve: 5,
-        padding: 6,
+        padding: 18,
         date_format: 'YYYY-MM-DD',
+        scroll_to: 'today',
         custom_popup_html: function(task) {
           const originalTask = task._task;
           return `
@@ -450,31 +451,90 @@ export default function GanttChart({
     setCurrentViewMode(mode);
     if (ganttInstance.current) {
       ganttInstance.current.change_view_mode(mode);
-      // Re-add date labels after view mode change
+
+      // Scroll to today's date after view mode change
       setTimeout(() => {
+        if (ganttInstance.current) {
+          // Find today's position and scroll to it
+          const today = new Date();
+          const ganttScrollEl = ganttScrollRef.current;
+          if (ganttScrollEl) {
+            // Frappe Gantt automatically centers on the scroll_to date
+            // But we'll ensure it's visible after view change
+            ganttInstance.current.scroll_today();
+          }
+        }
+
+        // Re-add date labels after view mode change
         const ganttTasks = transformTasksForGantt();
         addDateLabelsToBars(ganttTasks);
       }, 200);
     }
   };
 
+  // Scroll to today
+  const scrollToToday = () => {
+    if (ganttInstance.current) {
+      ganttInstance.current.scroll_today();
+    }
+  };
+
+  // Scroll left/right
+  const scrollHorizontal = (direction) => {
+    const ganttScrollEl = ganttScrollRef.current;
+    if (ganttScrollEl) {
+      const scrollAmount = 300; // pixels
+      ganttScrollEl.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
+
   return (
     <div className="gantt-chart-container">
-      {/* View Mode Selector */}
-      <div className="gantt-controls mb-4 flex gap-2">
-        {['Day', 'Week', 'Month', 'Year'].map(mode => (
+      {/* View Mode Selector and Navigation */}
+      <div className="gantt-controls mb-4 flex gap-4 items-center">
+        <div className="flex gap-2">
+          {['Day', 'Week', 'Month', 'Year'].map(mode => (
+            <button
+              key={mode}
+              onClick={() => changeViewMode(mode)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                currentViewMode === mode
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              {mode}
+            </button>
+          ))}
+        </div>
+
+        {/* Navigation Controls */}
+        <div className="flex gap-2 items-center border-l border-gray-300 pl-4">
           <button
-            key={mode}
-            onClick={() => changeViewMode(mode)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              currentViewMode === mode
-                ? 'bg-blue-500 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
+            onClick={() => scrollHorizontal('left')}
+            className="px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+            title="Scroll left"
           >
-            {mode}
+            ← Earlier
           </button>
-        ))}
+          <button
+            onClick={scrollToToday}
+            className="px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+            title="Center on today"
+          >
+            Today
+          </button>
+          <button
+            onClick={() => scrollHorizontal('right')}
+            className="px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+            title="Scroll right"
+          >
+            Later →
+          </button>
+        </div>
       </div>
 
       {/* Gantt Chart Container */}
@@ -494,7 +554,7 @@ export default function GanttChart({
                 <div
                   key={task.id}
                   className="task-name-item px-4 text-sm border-b border-gray-100 hover:bg-gray-50 cursor-pointer truncate"
-                  style={{ height: '42px', display: 'flex', alignItems: 'center' }}
+                  style={{ height: '66px', display: 'flex', alignItems: 'center' }}
                   onClick={() => onTaskClick && onTaskClick(task)}
                   title={task.title}
                 >
