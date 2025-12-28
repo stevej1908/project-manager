@@ -117,7 +117,7 @@ export default function TaskListView({ projectId }) {
           <td
             className="py-3 px-4 cursor-pointer"
             style={{ paddingLeft: `${depth * 24 + 16}px` }}
-            onDoubleClick={() => handleTaskClick(task)}
+            onClick={() => handleTaskClick(task)}
             title={`Assigned to: ${getAssigneeText(task.assignees)}\nDue: ${task.end_date ? format(new Date(task.end_date), 'MMM d, yyyy') : 'No due date'}`}
           >
             <div className="flex items-center gap-2">
