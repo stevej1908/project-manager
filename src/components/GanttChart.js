@@ -351,7 +351,6 @@ export default function GanttChart({
         bar_corner_radius: 3,
         arrow_curve: 5,
         padding: 18,
-        header_height: 50,
         date_format: 'YYYY-MM-DD',
         scroll_to: 'today',
         custom_popup_html: function(task) {
@@ -605,7 +604,7 @@ export default function GanttChart({
             <div className="font-semibold text-sm text-gray-700 p-4 border-b border-gray-200 sticky top-0 bg-white z-20" style={{ height: '60px' }}>
               Task Name
             </div>
-            <div className="task-names-list" style={{ paddingTop: '50px' }}>
+            <div className="task-names-list">
               {sortTasksHierarchically(tasks).map((task, index) => (
                 <div
                   key={task.id}
