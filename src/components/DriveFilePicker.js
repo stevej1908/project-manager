@@ -11,22 +11,25 @@ export default function DriveFilePicker({ taskId, onClose, onFileAttached }) {
   const [sharedDrives, setSharedDrives] = useState([]);
   const [selectedDriveId, setSelectedDriveId] = useState(null);
   const [loadingDrives, setLoadingDrives] = useState(false);
+  const [currentFolderId, setCurrentFolderId] = useState(null);
+  const [folderPath, setFolderPath] = useState([{ id: null, name: 'My Drive' }]);
 
   useEffect(() => {
     loadDriveFiles();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, selectedDriveId]);
+  }, [activeTab, selectedDriveId, currentFolderId]);
 
   const loadDriveFiles = async () => {
     try {
       setLoading(true);
       const driveType = activeTab === 'myDrive' ? 'user' : 'shared';
       const response = await googleAPI.listDriveFiles(
-        50,
+        100, // Increased from 50 to show more items
         null,
         searchQuery || null,
         driveType,
-        selectedDriveId
+        selectedDriveId,
+        currentFolderId
       );
       setFiles(response.files || []);
     } catch (error) {
@@ -35,6 +38,18 @@ export default function DriveFilePicker({ taskId, onClose, onFileAttached }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleFolderClick = (folder) => {
+    setCurrentFolderId(folder.id);
+    setFolderPath([...folderPath, { id: folder.id, name: folder.name }]);
+  };
+
+  const handleBreadcrumbClick = (index) => {
+    const newPath = folderPath.slice(0, index + 1);
+    const targetFolder = newPath[newPath.length - 1];
+    setCurrentFolderId(targetFolder.id);
+    setFolderPath(newPath);
   };
 
   const loadSharedDrives = async () => {
@@ -54,6 +69,8 @@ export default function DriveFilePicker({ taskId, onClose, onFileAttached }) {
     setActiveTab(tab);
     setSelectedDriveId(null);
     setSearchQuery('');
+    setCurrentFolderId(null);
+    setFolderPath([{ id: null, name: tab === 'myDrive' ? 'My Drive' : 'Shared Drives' }]);
     if (tab === 'sharedDrives' && sharedDrives.length === 0) {
       loadSharedDrives();
     }
@@ -182,6 +199,27 @@ export default function DriveFilePicker({ taskId, onClose, onFileAttached }) {
           </form>
         </div>
 
+        {/* Breadcrumb Navigation */}
+        {!searchQuery && (
+          <div className="px-4 py-2 border-b border-gray-200 bg-gray-50">
+            <div className="flex items-center gap-1 text-sm overflow-x-auto">
+              {folderPath.map((folder, index) => (
+                <React.Fragment key={folder.id || 'root'}>
+                  <button
+                    onClick={() => handleBreadcrumbClick(index)}
+                    className={`px-2 py-1 rounded hover:bg-gray-200 transition-colors ${
+                      index === folderPath.length - 1 ? 'font-semibold text-primary-600' : 'text-gray-600'
+                    }`}
+                  >
+                    {folder.name}
+                  </button>
+                  {index < folderPath.length - 1 && <span className="text-gray-400">/</span>}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Files List */}
         <div className="flex-1 overflow-y-auto p-4">
           {loading ? (
@@ -194,41 +232,54 @@ export default function DriveFilePicker({ taskId, onClose, onFileAttached }) {
             </div>
           ) : (
             <div className="space-y-2">
-              {files.map((file) => (
-                <div
-                  key={file.id}
-                  className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    {file.thumbnailLink ? (
-                      <img
-                        src={file.thumbnailLink}
-                        alt={file.name}
-                        className="w-10 h-10 rounded object-cover flex-shrink-0"
-                      />
-                    ) : (
-                      <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center flex-shrink-0">
-                        <File className="w-5 h-5 text-gray-400" />
-                      </div>
-                    )}
+              {files
+                .filter((file) => file.mimeType === 'application/vnd.google-apps.folder')
+                .map((folder) => (
+                  <div
+                    key={folder.id}
+                    onClick={() => handleFolderClick(folder)}
+                    className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors cursor-pointer"
+                  >
+                    <Folder className="w-10 h-10 text-blue-500 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">
-                        {file.name}
-                      </p>
-                      <p className="text-xs text-gray-500 truncate">
-                        {file.mimeType}
-                      </p>
+                      <p className="text-sm font-medium text-gray-900 truncate">{folder.name}</p>
+                      <p className="text-xs text-gray-500">Folder</p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleAttachFile(file)}
-                    disabled={attaching === file.id}
-                    className="ml-3 px-3 py-1.5 bg-primary-600 text-white text-sm rounded hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                ))}
+              {files
+                .filter((file) => file.mimeType !== 'application/vnd.google-apps.folder')
+                .map((file) => (
+                  <div
+                    key={file.id}
+                    className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                   >
-                    {attaching === file.id ? 'Attaching...' : 'Attach'}
-                  </button>
-                </div>
-              ))}
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      {file.thumbnailLink ? (
+                        <img
+                          src={file.thumbnailLink}
+                          alt={file.name}
+                          className="w-10 h-10 rounded object-cover flex-shrink-0"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center flex-shrink-0">
+                          <File className="w-5 h-5 text-gray-400" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{file.name}</p>
+                        <p className="text-xs text-gray-500 truncate">{file.mimeType}</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleAttachFile(file)}
+                      disabled={attaching === file.id}
+                      className="ml-3 px-3 py-1.5 bg-primary-600 text-white text-sm rounded hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                    >
+                      {attaching === file.id ? 'Attaching...' : 'Attach'}
+                    </button>
+                  </div>
+                ))}
             </div>
           )}
         </div>

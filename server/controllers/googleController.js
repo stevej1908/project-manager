@@ -336,13 +336,23 @@ const listSharedDrives = async (req, res) => {
 const listDriveFiles = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { pageSize = 20, pageToken, q, driveId, driveType = 'user' } = req.query;
+    const { pageSize = 20, pageToken, q, driveId, driveType = 'user', folderId } = req.query;
 
     const auth = await getUserOAuth2Client(userId);
     const drive = google.drive({ version: 'v3', auth });
 
     // Build proper Drive query syntax
     let query = "trashed=false";
+
+    // Filter by folder if specified
+    if (folderId && folderId !== 'null') {
+      query = `'${folderId}' in parents and trashed=false`;
+    } else if (folderId === 'null' || !folderId) {
+      // Root folder - items with no parents or in root
+      query = "trashed=false";
+    }
+
+    // Add search query if provided
     if (q && q.trim()) {
       // Escape single quotes in the search query
       const escapedQuery = q.trim().replace(/'/g, "\\'");
