@@ -571,7 +571,7 @@ export default function GanttChart({
 
       {/* Gantt Chart Container */}
       {tasks.length > 0 ? (
-        <div className="gantt-wrapper bg-white rounded-lg shadow-sm border border-gray-200 flex" style={{ maxHeight: '70vh' }}>
+        <div className="gantt-wrapper bg-white rounded-lg shadow-sm border border-gray-200 flex" style={{ maxHeight: '70vh', width: '100%', overflow: 'hidden' }}>
           {/* Sticky Task Names Column */}
           <div
             ref={taskNamesRef}
