@@ -304,11 +304,39 @@ const attachDriveFile = async (req, res) => {
   }
 };
 
+// List Shared Drives
+const listSharedDrives = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { pageSize = 20, pageToken } = req.query;
+
+    const auth = await getUserOAuth2Client(userId);
+    const drive = google.drive({ version: 'v3', auth });
+
+    const response = await drive.drives.list({
+      pageSize: parseInt(pageSize),
+      pageToken,
+      fields: 'nextPageToken, drives(id, name, kind)'
+    });
+
+    res.json({
+      drives: response.data.drives || [],
+      nextPageToken: response.data.nextPageToken || null
+    });
+  } catch (error) {
+    console.error('Error listing shared drives:', error);
+    res.status(500).json({
+      error: 'Failed to list shared drives',
+      message: error.message
+    });
+  }
+};
+
 // List Drive files
 const listDriveFiles = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { pageSize = 20, pageToken, q } = req.query;
+    const { pageSize = 20, pageToken, q, driveId, driveType = 'user' } = req.query;
 
     const auth = await getUserOAuth2Client(userId);
     const drive = google.drive({ version: 'v3', auth });
@@ -322,13 +350,32 @@ const listDriveFiles = async (req, res) => {
       query = `(name contains '${escapedQuery}' or fullText contains '${escapedQuery}') and trashed=false`;
     }
 
-    const response = await drive.files.list({
+    // Build request options
+    const requestOptions = {
       pageSize: parseInt(pageSize),
       pageToken,
       q: query,
-      fields: 'nextPageToken, files(id, name, mimeType, size, webViewLink, thumbnailLink, createdTime, modifiedTime)',
+      fields: 'nextPageToken, files(id, name, mimeType, size, webViewLink, thumbnailLink, createdTime, modifiedTime, parents, driveId)',
       orderBy: 'modifiedTime desc'
-    });
+    };
+
+    // If driveId is provided (for shared drives), add corpora and driveId
+    if (driveId) {
+      requestOptions.corpora = 'drive';
+      requestOptions.driveId = driveId;
+      requestOptions.includeItemsFromAllDrives = true;
+      requestOptions.supportsAllDrives = true;
+    } else if (driveType === 'shared') {
+      // List all files from all shared drives
+      requestOptions.corpora = 'allDrives';
+      requestOptions.includeItemsFromAllDrives = true;
+      requestOptions.supportsAllDrives = true;
+    } else {
+      // Default to user's personal drive
+      requestOptions.corpora = 'user';
+    }
+
+    const response = await drive.files.list(requestOptions);
 
     res.json({
       files: response.data.files || [],
@@ -537,6 +584,7 @@ module.exports = {
   getGmailMessage,
   attachDriveFile,
   listDriveFiles,
+  listSharedDrives,
   attachEmailToTask,
   getTaskEmails,
   deleteTaskEmail

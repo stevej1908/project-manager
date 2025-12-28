@@ -8,6 +8,7 @@ const {
   getGmailMessage,
   attachDriveFile,
   listDriveFiles,
+  listSharedDrives,
   attachEmailToTask,
   getTaskEmails,
   deleteTaskEmail
@@ -31,6 +32,7 @@ router.delete('/gmail/emails/:emailId', deleteTaskEmail);
 
 // Drive
 router.get('/drive/files', listDriveFiles);
+router.get('/drive/shared-drives', listSharedDrives);
 router.post('/drive/attach', attachDriveFile);
 
 module.exports = router;

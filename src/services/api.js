@@ -92,11 +92,17 @@ export const googleAPI = {
     return apiRequest(`/google/gmail/messages?${params}`);
   },
   getGmailMessage: (messageId) => apiRequest(`/google/gmail/messages/${messageId}`),
-  listDriveFiles: (pageSize = 20, pageToken = null, q = null) => {
-    const params = new URLSearchParams({ pageSize });
+  listDriveFiles: (pageSize = 20, pageToken = null, q = null, driveType = 'user', driveId = null) => {
+    const params = new URLSearchParams({ pageSize, driveType });
     if (pageToken) params.append('pageToken', pageToken);
     if (q) params.append('q', q);
+    if (driveId) params.append('driveId', driveId);
     return apiRequest(`/google/drive/files?${params}`);
+  },
+  listSharedDrives: (pageSize = 20, pageToken = null) => {
+    const params = new URLSearchParams({ pageSize });
+    if (pageToken) params.append('pageToken', pageToken);
+    return apiRequest(`/google/drive/shared-drives?${params}`);
   },
   attachDriveFile: (taskId, fileId) =>
     apiRequest('/google/drive/attach', {

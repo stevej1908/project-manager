@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, File, Loader, Search } from 'lucide-react';
+import { X, File, Loader, Search, Folder } from 'lucide-react';
 import { googleAPI } from '../services/api';
 
 export default function DriveFilePicker({ taskId, onClose, onFileAttached }) {
@@ -7,22 +7,55 @@ export default function DriveFilePicker({ taskId, onClose, onFileAttached }) {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [attaching, setAttaching] = useState(null);
+  const [activeTab, setActiveTab] = useState('myDrive'); // 'myDrive' or 'sharedDrives'
+  const [sharedDrives, setSharedDrives] = useState([]);
+  const [selectedDriveId, setSelectedDriveId] = useState(null);
+  const [loadingDrives, setLoadingDrives] = useState(false);
 
   useEffect(() => {
     loadDriveFiles();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeTab, selectedDriveId]);
 
   const loadDriveFiles = async () => {
     try {
       setLoading(true);
-      const response = await googleAPI.listDriveFiles(50, null, searchQuery || null);
+      const driveType = activeTab === 'myDrive' ? 'user' : 'shared';
+      const response = await googleAPI.listDriveFiles(
+        50,
+        null,
+        searchQuery || null,
+        driveType,
+        selectedDriveId
+      );
       setFiles(response.files || []);
     } catch (error) {
       console.error('Error loading Drive files:', error);
       alert('Failed to load Drive files');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadSharedDrives = async () => {
+    try {
+      setLoadingDrives(true);
+      const response = await googleAPI.listSharedDrives(50);
+      setSharedDrives(response.drives || []);
+    } catch (error) {
+      console.error('Error loading shared drives:', error);
+      alert('Failed to load shared drives');
+    } finally {
+      setLoadingDrives(false);
+    }
+  };
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setSelectedDriveId(null);
+    setSearchQuery('');
+    if (tab === 'sharedDrives' && sharedDrives.length === 0) {
+      loadSharedDrives();
     }
   };
 
@@ -59,6 +92,74 @@ export default function DriveFilePicker({ taskId, onClose, onFileAttached }) {
           </button>
         </div>
 
+        {/* Tabs */}
+        <div className="flex border-b border-gray-200">
+          <button
+            onClick={() => handleTabChange('myDrive')}
+            className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'myDrive'
+                ? 'text-primary-600 border-b-2 border-primary-600'
+                : 'text-gray-600 hover:text-gray-800'
+            }`}
+          >
+            My Drive
+          </button>
+          <button
+            onClick={() => handleTabChange('sharedDrives')}
+            className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'sharedDrives'
+                ? 'text-primary-600 border-b-2 border-primary-600'
+                : 'text-gray-600 hover:text-gray-800'
+            }`}
+          >
+            Shared Drives
+          </button>
+        </div>
+
+        {/* Shared Drives Selector */}
+        {activeTab === 'sharedDrives' && (
+          <div className="p-4 border-b border-gray-200 bg-gray-50">
+            {loadingDrives ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader className="w-5 h-5 animate-spin text-primary-600" />
+              </div>
+            ) : sharedDrives.length === 0 ? (
+              <p className="text-sm text-gray-500 text-center py-2">No shared drives found</p>
+            ) : (
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-gray-700">Select a Shared Drive:</label>
+                <div className="grid grid-cols-1 gap-2">
+                  <button
+                    onClick={() => setSelectedDriveId(null)}
+                    className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      selectedDriveId === null
+                        ? 'bg-primary-50 border-primary-500 text-primary-700'
+                        : 'bg-white border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    <Folder className="w-4 h-4" />
+                    <span>All Shared Drives</span>
+                  </button>
+                  {sharedDrives.map((drive) => (
+                    <button
+                      key={drive.id}
+                      onClick={() => setSelectedDriveId(drive.id)}
+                      className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg border transition-colors ${
+                        selectedDriveId === drive.id
+                          ? 'bg-primary-50 border-primary-500 text-primary-700'
+                          : 'bg-white border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      <Folder className="w-4 h-4" />
+                      <span className="truncate">{drive.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Search */}
         <div className="p-4 border-b border-gray-200">
           <form onSubmit={handleSearch} className="flex gap-2">
@@ -68,7 +169,7 @@ export default function DriveFilePicker({ taskId, onClose, onFileAttached }) {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search your Drive files..."
+                placeholder={`Search ${activeTab === 'myDrive' ? 'My Drive' : 'Shared Drives'}...`}
                 className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
               />
             </div>
