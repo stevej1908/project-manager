@@ -351,6 +351,7 @@ export default function GanttChart({
         bar_corner_radius: 3,
         arrow_curve: 5,
         padding: 18,
+        header_height: 50,
         date_format: 'YYYY-MM-DD',
         scroll_to: 'today',
         custom_popup_html: function(task) {
@@ -488,8 +489,30 @@ export default function GanttChart({
 
   // Scroll to today
   const scrollToToday = () => {
-    if (ganttInstance.current) {
-      ganttInstance.current.scroll_today();
+    const ganttScrollEl = ganttScrollRef.current;
+    if (ganttScrollEl && ganttContainer.current) {
+      // Find today's date position in the Gantt chart
+      const today = new Date();
+      const ganttSvg = ganttContainer.current.querySelector('svg');
+
+      if (ganttSvg) {
+        // Get the chart's date range
+        const bars = ganttContainer.current.querySelectorAll('.bar');
+        if (bars.length > 0) {
+          // Calculate approximate position of today based on chart width
+          const chartWidth = ganttSvg.getBoundingClientRect().width;
+          const scrollWidth = ganttScrollEl.scrollWidth;
+          const clientWidth = ganttScrollEl.clientWidth;
+
+          // Center the view (scroll to middle)
+          const centerScroll = (scrollWidth - clientWidth) / 2;
+
+          ganttScrollEl.scrollTo({
+            left: Math.max(0, centerScroll),
+            behavior: 'smooth'
+          });
+        }
+      }
     }
   };
 
@@ -502,22 +525,23 @@ export default function GanttChart({
     if (ganttScrollEl) {
       const scrollAmount = 300; // pixels
       const currentScroll = ganttScrollEl.scrollLeft;
+      const maxScroll = ganttScrollEl.scrollWidth - ganttScrollEl.clientWidth;
+
       console.log('Current scroll position:', currentScroll);
       console.log('Scroll width:', ganttScrollEl.scrollWidth);
       console.log('Client width:', ganttScrollEl.clientWidth);
+      console.log('Max scroll:', maxScroll);
 
-      const newScroll = direction === 'left' ? currentScroll - scrollAmount : currentScroll + scrollAmount;
-      console.log('New scroll position:', newScroll);
+      // Calculate new scroll position and clamp to valid range
+      let newScroll = direction === 'left' ? currentScroll - scrollAmount : currentScroll + scrollAmount;
+      newScroll = Math.max(0, Math.min(newScroll, maxScroll));
+
+      console.log('New scroll position (clamped):', newScroll);
 
       ganttScrollEl.scrollTo({
         left: newScroll,
         behavior: 'smooth'
       });
-
-      // Also try scrollLeft directly as a fallback
-      setTimeout(() => {
-        ganttScrollEl.scrollLeft = newScroll;
-      }, 100);
     } else {
       console.log('ganttScrollRef.current is null!');
     }
@@ -581,7 +605,7 @@ export default function GanttChart({
             <div className="font-semibold text-sm text-gray-700 p-4 border-b border-gray-200 sticky top-0 bg-white z-20" style={{ height: '60px' }}>
               Task Name
             </div>
-            <div className="task-names-list">
+            <div className="task-names-list" style={{ paddingTop: '50px' }}>
               {sortTasksHierarchically(tasks).map((task, index) => (
                 <div
                   key={task.id}
