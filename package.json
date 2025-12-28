@@ -62,10 +62,12 @@
     ]
   },
   "devDependencies": {
-    "@playwright/test": "^1.40.0",
+    "@playwright/test": "^1.57.0",
     "autoprefixer": "^10.4.14",
+    "axios": "^1.13.2",
     "concurrently": "^8.2.2",
     "pg": "^8.16.3",
+    "playwright": "^1.57.0",
     "postcss": "^8.4.24",
     "puppeteer": "^24.33.0",
     "sharp": "^0.34.5",

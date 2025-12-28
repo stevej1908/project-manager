@@ -413,6 +413,27 @@ export default function GanttChart({
                 console.log('Difference:', Math.abs(actualRowHeight - 48));
               }
             }
+
+            // Force wrapper to match SVG width for proper scrolling
+            const ganttContainerEl = ganttContainer.current.querySelector('.gantt-container');
+            if (ganttContainerEl) {
+              const svg = ganttContainerEl.querySelector('svg');
+              if (svg) {
+                const svgWidth = svg.getAttribute('width');
+                // Set width on our wrapper div, not frappe's container
+                ganttContainer.current.style.width = `${svgWidth}px`;
+                console.log('Set gantt-chart wrapper width to:', svgWidth + 'px');
+              }
+
+              // Match Task Name header height to frappe's header height
+              const frappeHeader = ganttContainerEl.querySelector('.grid-header');
+              const taskNameHeader = taskNamesRef.current?.querySelector('div:first-child');
+              if (frappeHeader && taskNameHeader) {
+                const frappeHeaderHeight = frappeHeader.offsetHeight;
+                taskNameHeader.style.height = `${frappeHeaderHeight}px`;
+                console.log('Matched header heights to:', frappeHeaderHeight + 'px');
+              }
+            }
           }
         }, 200);
       } catch (error) {
@@ -490,27 +511,21 @@ export default function GanttChart({
   const scrollToToday = () => {
     const ganttScrollEl = ganttScrollRef.current;
     if (ganttScrollEl && ganttContainer.current) {
-      // Find today's date position in the Gantt chart
-      const today = new Date();
-      const ganttSvg = ganttContainer.current.querySelector('svg');
+      // Find the "today" highlight marker in the Gantt chart
+      const todayHighlight = ganttContainer.current.querySelector('.current-highlight');
 
-      if (ganttSvg) {
-        // Get the chart's date range
-        const bars = ganttContainer.current.querySelectorAll('.bar');
-        if (bars.length > 0) {
-          // Calculate approximate position of today based on chart width
-          const chartWidth = ganttSvg.getBoundingClientRect().width;
-          const scrollWidth = ganttScrollEl.scrollWidth;
-          const clientWidth = ganttScrollEl.clientWidth;
+      if (todayHighlight) {
+        // Get the x position of today's marker
+        const todayX = parseFloat(todayHighlight.getAttribute('x') || todayHighlight.style.left || 0);
+        const clientWidth = ganttScrollEl.clientWidth;
 
-          // Center the view (scroll to middle)
-          const centerScroll = (scrollWidth - clientWidth) / 2;
+        // Scroll so today is centered in the view
+        const scrollPosition = todayX - (clientWidth / 2);
 
-          ganttScrollEl.scrollTo({
-            left: Math.max(0, centerScroll),
-            behavior: 'smooth'
-          });
-        }
+        console.log('Today marker at x:', todayX, 'Scrolling to:', scrollPosition);
+        ganttScrollEl.scrollLeft = Math.max(0, scrollPosition);
+      } else {
+        console.log('Today marker not found');
       }
     }
   };
@@ -519,30 +534,24 @@ export default function GanttChart({
   const scrollHorizontal = (direction) => {
     const ganttScrollEl = ganttScrollRef.current;
     console.log('Scroll button clicked!', direction);
-    console.log('ganttScrollRef.current:', ganttScrollEl);
 
     if (ganttScrollEl) {
       const scrollAmount = 300; // pixels
       const currentScroll = ganttScrollEl.scrollLeft;
       const maxScroll = ganttScrollEl.scrollWidth - ganttScrollEl.clientWidth;
 
-      console.log('Current scroll position:', currentScroll);
-      console.log('Scroll width:', ganttScrollEl.scrollWidth);
-      console.log('Client width:', ganttScrollEl.clientWidth);
-      console.log('Max scroll:', maxScroll);
+      console.log('Current scroll:', currentScroll, 'Max:', maxScroll);
 
       // Calculate new scroll position and clamp to valid range
       let newScroll = direction === 'left' ? currentScroll - scrollAmount : currentScroll + scrollAmount;
       newScroll = Math.max(0, Math.min(newScroll, maxScroll));
 
-      console.log('New scroll position (clamped):', newScroll);
+      console.log('Scrolling to:', newScroll);
 
-      ganttScrollEl.scrollTo({
-        left: newScroll,
-        behavior: 'smooth'
-      });
+      // Use direct scrollLeft assignment for better compatibility
+      ganttScrollEl.scrollLeft = newScroll;
     } else {
-      console.log('ganttScrollRef.current is null!');
+      console.log('ERROR: ganttScrollRef is null!');
     }
   };
 
@@ -623,23 +632,16 @@ export default function GanttChart({
 
           {/* Gantt Chart */}
           <div className="flex-1 relative" style={{ minWidth: 0 }}>
-            {/* Sticky Timeline Header Overlay */}
-            <div className="sticky top-0 z-40 bg-white border-b border-gray-200" style={{ height: '60px' }}>
-              <div className="text-sm font-semibold text-gray-700 px-4 py-4">
-                Timeline
-              </div>
-            </div>
-
             {/* Scrollable Gantt Container */}
             <div
               ref={ganttScrollRef}
               className="overflow-auto gantt-scroll-wrapper"
-              style={{ maxHeight: 'calc(70vh - 60px)', position: 'relative' }}
+              style={{ maxHeight: '70vh', position: 'relative' }}
             >
               <div
                 ref={ganttContainer}
                 className="gantt-chart"
-                style={{ height: 'auto', minWidth: '800px' }}
+                style={{ height: 'auto' }}
               />
             </div>
           </div>
@@ -671,6 +673,12 @@ export default function GanttChart({
         .gantt-chart {
           position: relative;
           min-height: 400px;
+        }
+
+        /* Override frappe-gantt's width:100% to allow horizontal scrolling */
+        .gantt-chart .gantt-container {
+          width: auto !important;
+          min-width: 100%;
         }
 
         /* Ensure SVG renders properly during scroll */

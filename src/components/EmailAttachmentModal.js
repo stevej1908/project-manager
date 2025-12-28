@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Mail, Loader, Search, Calendar, Paperclip } from 'lucide-react';
+import { X, Mail, Loader, Search, Calendar } from 'lucide-react';
 import { googleAPI } from '../services/api';
 
 export default function EmailAttachmentModal({ taskId, onClose, onEmailsAttached }) {
@@ -13,6 +13,7 @@ export default function EmailAttachmentModal({ taskId, onClose, onEmailsAttached
 
   useEffect(() => {
     loadEmails();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadEmails = async () => {

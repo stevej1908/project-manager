@@ -121,11 +121,14 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
     setEditValues({ ...editValues, [field]: value });
   };
 
-  const handleFieldSave = async (field) => {
+  const handleFieldSave = async (field, value = null) => {
     try {
       setSaving(true);
-      const updateData = { [field]: editValues[field] };
-      const updatedTask = await tasksAPI.update(taskId, updateData);
+      // Use provided value or fall back to editValues (for immediate saves vs. edit mode saves)
+      const valueToSave = value !== null ? value : editValues[field];
+      const updateData = { [field]: valueToSave };
+      const response = await tasksAPI.update(taskId, updateData);
+      const updatedTask = response.task; // Backend returns { task: {...} }
       setTask(updatedTask);
       setEditMode({ ...editMode, [field]: false });
       if (onUpdate) onUpdate(updatedTask);
@@ -436,8 +439,7 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
                 <select
                   value={task.status}
                   onChange={(e) => {
-                    handleFieldEdit('status', e.target.value);
-                    handleFieldSave('status');
+                    handleFieldSave('status', e.target.value);
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 >
@@ -465,8 +467,7 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
                 <select
                   value={task.priority}
                   onChange={(e) => {
-                    handleFieldEdit('priority', e.target.value);
-                    handleFieldSave('priority');
+                    handleFieldSave('priority', e.target.value);
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 >

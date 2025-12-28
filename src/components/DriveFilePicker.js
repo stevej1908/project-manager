@@ -10,6 +10,7 @@ export default function DriveFilePicker({ taskId, onClose, onFileAttached }) {
 
   useEffect(() => {
     loadDriveFiles();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadDriveFiles = async () => {

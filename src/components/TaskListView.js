@@ -26,7 +26,8 @@ export default function TaskListView({ projectId }) {
     if (projectId) {
       loadDependencies();
     }
-  }, [projectId, tasks]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   const loadDependencies = async () => {
     try {

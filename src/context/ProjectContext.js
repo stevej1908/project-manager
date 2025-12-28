@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect } from 'react';
+import React, { createContext, useState } from 'react';
 import { projectsAPI, tasksAPI } from '../services/api';
 
 export const ProjectContext = createContext();

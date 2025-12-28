@@ -16,3 +16,9 @@ app-icon.ico
 nul
 public/*.png
 public/*.ico
+
+.vercel
+.env*.local
+auth-state.json
+test-screenshots/
+auth-token.txt
