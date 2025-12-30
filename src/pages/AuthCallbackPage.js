@@ -3,7 +3,7 @@ import { AuthContext } from '../context/AuthContext';
 
 export default function AuthCallbackPage() {
   const { setToken } = useContext(AuthContext);
-  const [countdown, setCountdown] = useState(3);
+  const [countdown, setCountdown] = useState(5);
 
   useEffect(() => {
     // Get token from URL
@@ -24,7 +24,7 @@ export default function AuthCallbackPage() {
       });
     }, 1000);
 
-    // Wait 3 seconds before redirecting to allow token storage to complete
+    // Wait 5 seconds before redirecting to allow token storage to complete
     const timer = setTimeout(() => {
       if (token) {
         console.log('AuthCallback - Setting token and redirecting to /');
@@ -36,7 +36,7 @@ export default function AuthCallbackPage() {
         console.log('AuthCallback - No token, redirecting to /auth/error');
         window.location.href = '/auth/error' + (error ? '?error=' + encodeURIComponent(error) : '');
       }
-    }, 3000);
+    }, 5000);
 
     return () => {
       clearTimeout(timer);
