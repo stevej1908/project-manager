@@ -49,9 +49,22 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const setToken = (token) => {
-    localStorage.setItem('authToken', token);
-    checkAuth();
+  const setToken = async (token) => {
+    try {
+      localStorage.setItem('authToken', token);
+      // Verify storage worked (Safari ITP fix)
+      const stored = localStorage.getItem('authToken');
+      if (stored !== token) {
+        console.error('localStorage failed - Safari ITP may be blocking');
+        // Try setting again
+        localStorage.setItem('authToken', token);
+      }
+      await checkAuth();
+      return true;
+    } catch (error) {
+      console.error('Error setting token:', error);
+      return false;
+    }
   };
 
   return (

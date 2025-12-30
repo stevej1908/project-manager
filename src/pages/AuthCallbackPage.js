@@ -25,12 +25,19 @@ export default function AuthCallbackPage() {
     }, 1000);
 
     // Wait 5 seconds before redirecting to allow token storage to complete
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
       if (token) {
         console.log('AuthCallback - Setting token and redirecting to /');
-        setToken(token);
-        // Redirect to dashboard
-        window.location.href = '/';
+        const success = await setToken(token);
+        if (success) {
+          // Wait a bit more for Safari/iOS
+          await new Promise(resolve => setTimeout(resolve, 500));
+          console.log('AuthCallback - Token set successfully, redirecting');
+          window.location.href = '/';
+        } else {
+          console.error('AuthCallback - Failed to set token');
+          window.location.href = '/auth/error?error=Failed to store authentication token';
+        }
       } else {
         // No token, redirect to error
         console.log('AuthCallback - No token, redirecting to /auth/error');
