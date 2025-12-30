@@ -1,6 +1,10 @@
 node_modules
 .env
 .env.local
+.env.production
+.env*.check
+.env*.verify
+.env.vercel*
 dist
 build
 *.log
@@ -11,6 +15,9 @@ coverage
 server/node_modules
 server/.env
 server/.env.local
+server/.env*.check
+server/.env*.verify
+server/.env.vercel*
 uploads
 app-icon.ico
 nul
@@ -22,3 +29,15 @@ public/*.ico
 auth-state.json
 test-screenshots/
 auth-token.txt
+
+# Test files
+test-*.js
+test-*.png
+*.test.js
+server/tests/
+TESTING.md
+api/
+save-auth-session.js
+find-auth-data.html
+copy-auth-token.md
+screenshot-*.png
