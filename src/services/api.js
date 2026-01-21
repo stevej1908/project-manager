@@ -75,6 +75,13 @@ export const tasksAPI = {
     }),
   deleteAttachment: (attachmentId) =>
     apiRequest(`/tasks/attachments/${attachmentId}`, { method: 'DELETE' }),
+  addAssignee: (id, assigneeData) =>
+    apiRequest(`/tasks/${id}/assignees`, {
+      method: 'POST',
+      body: JSON.stringify(assigneeData),
+    }),
+  removeAssignee: (taskId, assigneeId) =>
+    apiRequest(`/tasks/${taskId}/assignees/${assigneeId}`, { method: 'DELETE' }),
 };
 
 // Google API

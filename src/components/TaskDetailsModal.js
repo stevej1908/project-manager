@@ -19,6 +19,7 @@ import { format, parseISO } from 'date-fns';
 import { tasksAPI, dependenciesAPI, googleAPI } from '../services/api';
 import DriveFilePicker from './DriveFilePicker';
 import EmailAttachmentModal from './EmailAttachmentModal';
+import ContactsPickerModal from './ContactsPickerModal';
 
 const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'urgent'];
 const STATUS_OPTIONS = ['todo', 'in_progress', 'review', 'done'];
@@ -47,9 +48,9 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // Edit state
-  const [editMode, setEditMode] = useState({});
-  const [editValues, setEditValues] = useState({});
+  // Edit state - track all changes
+  const [editedTask, setEditedTask] = useState({});
+  const [hasChanges, setHasChanges] = useState(false);
 
   // Comment state
   const [newComment, setNewComment] = useState('');
@@ -69,6 +70,9 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
   // Email picker state
   const [showEmailPicker, setShowEmailPicker] = useState(false);
 
+  // Contacts picker state
+  const [showContactsPicker, setShowContactsPicker] = useState(false);
+
   useEffect(() => {
     loadTaskDetails();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -85,6 +89,17 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
 
       const taskData = taskResponse.task; // Backend returns { task: {...} }
       setTask(taskData);
+      // Initialize editedTask with current task values
+      setEditedTask({
+        title: taskData.title,
+        description: taskData.description || '',
+        status: taskData.status,
+        priority: taskData.priority,
+        start_date: taskData.start_date ? taskData.start_date.split('T')[0] : '',
+        end_date: taskData.end_date ? taskData.end_date.split('T')[0] : ''
+      });
+      setHasChanges(false);
+
       // Comments and attachments come from the task object
       setComments(taskData.comments || []);
       setAttachments(taskData.attachments || []);
@@ -117,21 +132,43 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
     }
   };
 
-  const handleFieldEdit = (field, value) => {
-    setEditValues({ ...editValues, [field]: value });
+  const handleFieldChange = (field, value) => {
+    setEditedTask({ ...editedTask, [field]: value });
+    setHasChanges(true);
   };
 
-  const handleFieldSave = async (field, value = null) => {
+  const handleSaveAll = async () => {
     try {
       setSaving(true);
-      // Use provided value or fall back to editValues (for immediate saves vs. edit mode saves)
-      const valueToSave = value !== null ? value : editValues[field];
-      const updateData = { [field]: valueToSave };
-      const response = await tasksAPI.update(taskId, updateData);
-      const updatedTask = response.task; // Backend returns { task: {...} }
-      setTask(updatedTask);
-      setEditMode({ ...editMode, [field]: false });
-      if (onUpdate) onUpdate(updatedTask);
+
+      // Prepare update data - only send fields that have changed
+      const updateData = {};
+      Object.keys(editedTask).forEach(key => {
+        const originalValue = task[key] ? (key.includes('date') ? task[key].split('T')[0] : task[key]) : '';
+        if (editedTask[key] !== originalValue) {
+          updateData[key] = editedTask[key] || null;
+        }
+      });
+
+      // Only make API call if there are actual changes
+      if (Object.keys(updateData).length > 0) {
+        const response = await tasksAPI.update(taskId, updateData);
+        const updatedTask = response.task;
+        setTask(updatedTask);
+
+        // Update editedTask with the saved values
+        setEditedTask({
+          title: updatedTask.title,
+          description: updatedTask.description || '',
+          status: updatedTask.status,
+          priority: updatedTask.priority,
+          start_date: updatedTask.start_date ? updatedTask.start_date.split('T')[0] : '',
+          end_date: updatedTask.end_date ? updatedTask.end_date.split('T')[0] : ''
+        });
+        setHasChanges(false);
+
+        if (onUpdate) onUpdate(updatedTask);
+      }
     } catch (error) {
       console.error('Error updating task:', error);
       alert('Failed to update task');
@@ -140,14 +177,17 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
     }
   };
 
-  const handleFieldCancel = (field) => {
-    setEditMode({ ...editMode, [field]: false });
-    setEditValues({ ...editValues, [field]: task[field] });
-  };
-
-  const startEdit = (field) => {
-    setEditMode({ ...editMode, [field]: true });
-    setEditValues({ ...editValues, [field]: task[field] });
+  const handleDiscardChanges = () => {
+    // Reset editedTask to original task values
+    setEditedTask({
+      title: task.title,
+      description: task.description || '',
+      status: task.status,
+      priority: task.priority,
+      start_date: task.start_date ? task.start_date.split('T')[0] : '',
+      end_date: task.end_date ? task.end_date.split('T')[0] : ''
+    });
+    setHasChanges(false);
   };
 
   const handleAddComment = async (e) => {
@@ -263,6 +303,41 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
     if (onUpdate) onUpdate();
   };
 
+  const handleContactsSelected = async (contacts) => {
+    try {
+      // Add each selected contact as an assignee
+      for (const contact of contacts) {
+        await tasksAPI.addAssignee(taskId, {
+          contact_name: contact.name,
+          contact_email: contact.email,
+          contact_google_id: contact.googleId
+        });
+      }
+
+      // Reload task details to get the new assignees
+      await loadTaskDetails();
+      if (onUpdate) onUpdate();
+    } catch (error) {
+      console.error('Error adding assignees:', error);
+      alert('Failed to add assignees');
+    }
+  };
+
+  const handleDeleteAssignee = async (assigneeId) => {
+    if (!window.confirm('Remove this assignee?')) return;
+
+    try {
+      await tasksAPI.removeAssignee(taskId, assigneeId);
+
+      // Reload task details
+      await loadTaskDetails();
+      if (onUpdate) onUpdate();
+    } catch (error) {
+      console.error('Error removing assignee:', error);
+      alert('Failed to remove assignee');
+    }
+  };
+
   if (loading || !task) {
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -297,37 +372,13 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Title
                 </label>
-                {editMode.title ? (
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={editValues.title}
-                      onChange={(e) => handleFieldEdit('title', e.target.value)}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                      autoFocus
-                    />
-                    <button
-                      onClick={() => handleFieldSave('title')}
-                      disabled={saving}
-                      className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-                    >
-                      Save
-                    </button>
-                    <button
-                      onClick={() => handleFieldCancel('title')}
-                      className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <div
-                    onClick={() => startEdit('title')}
-                    className="px-3 py-2 border border-transparent rounded-lg hover:border-gray-300 hover:bg-gray-50 cursor-pointer"
-                  >
-                    <h3 className="text-lg font-semibold text-gray-900">{task.title}</h3>
-                  </div>
-                )}
+                <input
+                  type="text"
+                  value={editedTask.title || ''}
+                  onChange={(e) => handleFieldChange('title', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-lg font-semibold"
+                  placeholder="Task title..."
+                />
               </div>
 
               {/* Description */}
@@ -335,41 +386,13 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Description
                 </label>
-                {editMode.description ? (
-                  <div className="space-y-2">
-                    <textarea
-                      value={editValues.description || ''}
-                      onChange={(e) => handleFieldEdit('description', e.target.value)}
-                      rows={4}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                      autoFocus
-                    />
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleFieldSave('description')}
-                        disabled={saving}
-                        className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={() => handleFieldCancel('description')}
-                        className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div
-                    onClick={() => startEdit('description')}
-                    className="px-3 py-2 border border-transparent rounded-lg hover:border-gray-300 hover:bg-gray-50 cursor-pointer min-h-[100px]"
-                  >
-                    <p className="text-gray-700 whitespace-pre-wrap">
-                      {task.description || 'Click to add description...'}
-                    </p>
-                  </div>
-                )}
+                <textarea
+                  value={editedTask.description || ''}
+                  onChange={(e) => handleFieldChange('description', e.target.value)}
+                  rows={4}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="Add description..."
+                />
               </div>
 
               {/* Comments Section */}
@@ -437,10 +460,8 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
                   Status
                 </label>
                 <select
-                  value={task.status}
-                  onChange={(e) => {
-                    handleFieldSave('status', e.target.value);
-                  }}
+                  value={editedTask.status || task.status}
+                  onChange={(e) => handleFieldChange('status', e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 >
                   {STATUS_OPTIONS.map((status) => (
@@ -451,10 +472,10 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
                 </select>
                 <span
                   className={`inline-block mt-2 px-3 py-1 text-xs font-medium rounded ${
-                    STATUS_COLORS[task.status]
+                    STATUS_COLORS[editedTask.status || task.status]
                   }`}
                 >
-                  {task.status.replace('_', ' ')}
+                  {(editedTask.status || task.status).replace('_', ' ')}
                 </span>
               </div>
 
@@ -465,10 +486,8 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
                   Priority
                 </label>
                 <select
-                  value={task.priority}
-                  onChange={(e) => {
-                    handleFieldSave('priority', e.target.value);
-                  }}
+                  value={editedTask.priority || task.priority}
+                  onChange={(e) => handleFieldChange('priority', e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 >
                   {PRIORITY_OPTIONS.map((priority) => (
@@ -479,10 +498,10 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
                 </select>
                 <span
                   className={`inline-block mt-2 px-3 py-1 text-xs font-medium rounded ${
-                    PRIORITY_COLORS[task.priority]
+                    PRIORITY_COLORS[editedTask.priority || task.priority]
                   }`}
                 >
-                  {task.priority}
+                  {editedTask.priority || task.priority}
                 </span>
               </div>
 
@@ -492,42 +511,12 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
                   <Calendar className="w-4 h-4 inline mr-1" />
                   Start Date
                 </label>
-                {editMode.start_date ? (
-                  <div className="space-y-2">
-                    <input
-                      type="date"
-                      value={editValues.start_date || ''}
-                      onChange={(e) => handleFieldEdit('start_date', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    />
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleFieldSave('start_date')}
-                        disabled={saving}
-                        className="flex-1 px-3 py-1 bg-primary-600 text-white text-sm rounded hover:bg-primary-700"
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={() => handleFieldCancel('start_date')}
-                        className="flex-1 px-3 py-1 bg-gray-100 text-gray-700 text-sm rounded hover:bg-gray-200"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div
-                    onClick={() => startEdit('start_date')}
-                    className="px-3 py-2 border border-transparent rounded-lg hover:border-gray-300 hover:bg-gray-50 cursor-pointer"
-                  >
-                    <p className="text-sm text-gray-700">
-                      {task.start_date
-                        ? format(parseISO(task.start_date), 'MMM d, yyyy')
-                        : 'Not set'}
-                    </p>
-                  </div>
-                )}
+                <input
+                  type="date"
+                  value={editedTask.start_date || ''}
+                  onChange={(e) => handleFieldChange('start_date', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
               </div>
 
               <div>
@@ -535,64 +524,53 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
                   <Calendar className="w-4 h-4 inline mr-1" />
                   End Date
                 </label>
-                {editMode.end_date ? (
-                  <div className="space-y-2">
-                    <input
-                      type="date"
-                      value={editValues.end_date || ''}
-                      onChange={(e) => handleFieldEdit('end_date', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    />
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleFieldSave('end_date')}
-                        disabled={saving}
-                        className="flex-1 px-3 py-1 bg-primary-600 text-white text-sm rounded hover:bg-primary-700"
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={() => handleFieldCancel('end_date')}
-                        className="flex-1 px-3 py-1 bg-gray-100 text-gray-700 text-sm rounded hover:bg-gray-200"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div
-                    onClick={() => startEdit('end_date')}
-                    className="px-3 py-2 border border-transparent rounded-lg hover:border-gray-300 hover:bg-gray-50 cursor-pointer"
-                  >
-                    <p className="text-sm text-gray-700">
-                      {task.end_date
-                        ? format(parseISO(task.end_date), 'MMM d, yyyy')
-                        : 'Not set'}
-                    </p>
-                  </div>
-                )}
+                <input
+                  type="date"
+                  value={editedTask.end_date || ''}
+                  onChange={(e) => handleFieldChange('end_date', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
               </div>
 
               {/* Assignees */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <User className="w-4 h-4 inline mr-1" />
-                  Assignees ({task.assignees?.length || 0})
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                    <User className="w-4 h-4" />
+                    Assignees ({task.assignees?.length || 0})
+                  </label>
+                  <button
+                    onClick={() => setShowContactsPicker(true)}
+                    className="flex items-center gap-1 text-primary-600 hover:text-primary-700 p-1 text-sm"
+                    title="Add assignees"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span className="text-xs">Add</span>
+                  </button>
+                </div>
                 <div className="space-y-2">
                   {task.assignees && task.assignees.length > 0 ? (
                     task.assignees.map((assignee) => (
-                      <div key={assignee.id} className="bg-gray-50 rounded-lg p-2">
-                        <p className="text-sm font-medium text-gray-900">
-                          {assignee.contact_name || assignee.user_id}
-                        </p>
-                        {assignee.contact_email && (
-                          <p className="text-xs text-gray-600">{assignee.contact_email}</p>
-                        )}
+                      <div key={assignee.id} className="bg-gray-50 rounded-lg p-2 flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {assignee.contact_name || assignee.user_id}
+                          </p>
+                          {assignee.contact_email && (
+                            <p className="text-xs text-gray-600 truncate">{assignee.contact_email}</p>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => handleDeleteAssignee(assignee.id)}
+                          className="text-red-600 hover:text-red-700 p-1 flex-shrink-0"
+                          title="Remove assignee"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     ))
                   ) : (
-                    <p className="text-sm text-gray-500">No assignees</p>
+                    <p className="text-sm text-gray-500 py-2">No assignees</p>
                   )}
                 </div>
               </div>
@@ -889,7 +867,37 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+        <div className="flex items-center justify-between p-6 border-t border-gray-200">
+          <div className="flex items-center gap-3">
+            {hasChanges && (
+              <>
+                <button
+                  onClick={handleSaveAll}
+                  disabled={saving}
+                  className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {saving ? (
+                    <>
+                      <Loader className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    'Save Changes'
+                  )}
+                </button>
+                <button
+                  onClick={handleDiscardChanges}
+                  disabled={saving}
+                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+                >
+                  Discard
+                </button>
+                <span className="text-sm text-orange-600">
+                  You have unsaved changes
+                </span>
+              </>
+            )}
+          </div>
           <button
             onClick={onClose}
             className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
@@ -914,6 +922,16 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
           taskId={taskId}
           onClose={() => setShowEmailPicker(false)}
           onEmailsAttached={handleFileAttached}
+        />
+      )}
+
+      {/* Contacts Picker Modal */}
+      {showContactsPicker && (
+        <ContactsPickerModal
+          onClose={() => setShowContactsPicker(false)}
+          onContactsSelected={handleContactsSelected}
+          multiSelect={true}
+          title="Add Assignees"
         />
       )}
     </div>

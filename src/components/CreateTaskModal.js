@@ -1,6 +1,7 @@
 import React, { useState, useContext } from 'react';
 import { ProjectContext } from '../context/ProjectContext';
-import { X } from 'lucide-react';
+import { X, User, Plus, Trash2 } from 'lucide-react';
+import ContactsPickerModal from './ContactsPickerModal';
 
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'];
 
@@ -11,6 +12,8 @@ export default function CreateTaskModal({ projectId, initialStatus = 'todo', par
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [priority, setPriority] = useState('medium');
+  const [assignees, setAssignees] = useState([]);
+  const [showContactsPicker, setShowContactsPicker] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -24,6 +27,14 @@ export default function CreateTaskModal({ projectId, initialStatus = 'todo', par
     try {
       setLoading(true);
       setError('');
+
+      // Prepare assignees data for backend
+      const assigneesData = assignees.map(contact => ({
+        contact_name: contact.name,
+        contact_email: contact.email,
+        contact_google_id: contact.googleId
+      }));
+
       await createTask({
         project_id: projectId,
         title,
@@ -33,6 +44,7 @@ export default function CreateTaskModal({ projectId, initialStatus = 'todo', par
         priority,
         status: initialStatus,
         parent_task_id: parentTaskId,
+        assignees: assigneesData
       });
       await loadTasks(projectId);
       onClose();
@@ -41,6 +53,21 @@ export default function CreateTaskModal({ projectId, initialStatus = 'todo', par
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleContactsSelected = (contacts) => {
+    // Add contacts to assignees, avoiding duplicates
+    const newAssignees = [...assignees];
+    contacts.forEach(contact => {
+      if (!newAssignees.some(a => a.email === contact.email)) {
+        newAssignees.push(contact);
+      }
+    });
+    setAssignees(newAssignees);
+  };
+
+  const handleRemoveAssignee = (email) => {
+    setAssignees(assignees.filter(a => a.email !== email));
   };
 
   return (
@@ -126,6 +153,48 @@ export default function CreateTaskModal({ projectId, initialStatus = 'todo', par
             </div>
           </div>
 
+          {/* Assignees */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <User className="w-4 h-4" />
+                Assignees ({assignees.length})
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowContactsPicker(true)}
+                className="flex items-center gap-1 text-primary-600 hover:text-primary-700 p-1 text-sm"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="text-xs">Add</span>
+              </button>
+            </div>
+            <div className="space-y-2">
+              {assignees.length > 0 ? (
+                assignees.map((assignee) => (
+                  <div key={assignee.email} className="bg-gray-50 rounded-lg p-2 flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">
+                        {assignee.name}
+                      </p>
+                      <p className="text-xs text-gray-600 truncate">{assignee.email}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAssignee(assignee.email)}
+                      className="text-red-600 hover:text-red-700 p-1 flex-shrink-0"
+                      title="Remove assignee"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-gray-500 py-2">No assignees added yet</p>
+              )}
+            </div>
+          </div>
+
           <div className="flex gap-3 pt-4">
             <button
               type="button"
@@ -144,6 +213,16 @@ export default function CreateTaskModal({ projectId, initialStatus = 'todo', par
           </div>
         </form>
       </div>
+
+      {/* Contacts Picker Modal */}
+      {showContactsPicker && (
+        <ContactsPickerModal
+          onClose={() => setShowContactsPicker(false)}
+          onContactsSelected={handleContactsSelected}
+          multiSelect={true}
+          title="Add Assignees"
+        />
+      )}
     </div>
   );
 }

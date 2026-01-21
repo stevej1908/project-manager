@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { projectsAPI } from '../services/api';
-import { X, UserPlus } from 'lucide-react';
+import { X, UserPlus, Users } from 'lucide-react';
+import ContactsPickerModal from './ContactsPickerModal';
 
 export default function ShareProjectModal({ project, onClose }) {
   const [email, setEmail] = useState('');
@@ -8,6 +9,7 @@ export default function ShareProjectModal({ project, onClose }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showContactsPicker, setShowContactsPicker] = useState(false);
 
   const handleShare = async (e) => {
     e.preventDefault();
@@ -27,6 +29,13 @@ export default function ShareProjectModal({ project, onClose }) {
       setError(err.message || 'Failed to share project');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleContactSelected = (contacts) => {
+    // In single-select mode, contacts will have only one contact
+    if (contacts.length > 0) {
+      setEmail(contacts[0].email);
     }
   };
 
@@ -54,13 +63,24 @@ export default function ShareProjectModal({ project, onClose }) {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-              placeholder="colleague@example.com"
-            />
+            <div className="flex gap-2">
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="colleague@example.com"
+              />
+              <button
+                type="button"
+                onClick={() => setShowContactsPicker(true)}
+                className="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2"
+                title="Browse Google Contacts"
+              >
+                <Users className="w-4 h-4" />
+                <span className="text-sm">Browse</span>
+              </button>
+            </div>
             <p className="mt-1 text-xs text-gray-500">
               User must have an account to be added
             </p>
@@ -139,6 +159,16 @@ export default function ShareProjectModal({ project, onClose }) {
           )}
         </form>
       </div>
+
+      {/* Contacts Picker Modal */}
+      {showContactsPicker && (
+        <ContactsPickerModal
+          onClose={() => setShowContactsPicker(false)}
+          onContactsSelected={handleContactSelected}
+          multiSelect={false}
+          title="Select Contact"
+        />
+      )}
     </div>
   );
 }

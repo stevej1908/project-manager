@@ -12,7 +12,7 @@ const pool = new Pool(
         },
         max: 20,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 2000,
+        connectionTimeoutMillis: 10000, // Increased to 10 seconds for cloud database
       }
     : {
         host: process.env.DB_HOST || 'localhost',
@@ -22,7 +22,7 @@ const pool = new Pool(
         password: process.env.DB_PASSWORD,
         max: 20,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 2000,
+        connectionTimeoutMillis: 10000, // Increased to 10 seconds
       }
 );
 

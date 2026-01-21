@@ -207,7 +207,7 @@ const createTask = async (req, res) => {
         position, gmail_message_id, gmail_thread_id, created_by,
         parent_task_id, depth_level
       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING *`,
       [
         project_id,
@@ -379,8 +379,8 @@ const updateTask = async (req, res) => {
       `UPDATE tasks
        SET title = COALESCE($1, title),
            description = COALESCE($2, description),
-           start_date = COALESCE($3, start_date),
-           end_date = COALESCE($4, end_date),
+           start_date = CASE WHEN $3::text IS NOT NULL THEN $3::date ELSE start_date END,
+           end_date = CASE WHEN $4::text IS NOT NULL THEN $4::date ELSE end_date END,
            status = COALESCE($5, status),
            priority = COALESCE($6, priority),
            position = COALESCE($7, position),
@@ -531,6 +531,101 @@ const deleteAttachment = async (req, res) => {
   }
 };
 
+// Add assignee to task
+const addAssignee = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { contact_name, contact_email, contact_google_id } = req.body;
+    const userId = req.user.id;
+
+    if (!contact_email) {
+      return res.status(400).json({ error: 'Contact email is required' });
+    }
+
+    // Check if user has access to the task
+    const accessCheck = await pool.query(
+      `SELECT t.id, p.owner_id, pm.role FROM tasks t
+       INNER JOIN projects p ON t.project_id = p.id
+       LEFT JOIN project_members pm ON p.id = pm.project_id
+       WHERE t.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+      [id, userId]
+    );
+
+    if (accessCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Task not found or access denied' });
+    }
+
+    const { owner_id, role } = accessCheck.rows[0];
+    if (owner_id !== userId && role === 'viewer') {
+      return res.status(403).json({ error: 'Viewers cannot add assignees' });
+    }
+
+    // Check if this contact is already assigned
+    const existingAssignee = await pool.query(
+      'SELECT id FROM task_assignees WHERE task_id = $1 AND contact_email = $2',
+      [id, contact_email]
+    );
+
+    if (existingAssignee.rows.length > 0) {
+      return res.status(400).json({ error: 'This contact is already assigned to this task' });
+    }
+
+    // Add the assignee
+    const result = await pool.query(
+      `INSERT INTO task_assignees (task_id, contact_name, contact_email, contact_google_id, assigned_by)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [id, contact_name, contact_email, contact_google_id, userId]
+    );
+
+    res.status(201).json({ assignee: result.rows[0] });
+  } catch (error) {
+    console.error('Error adding assignee:', error);
+    res.status(500).json({
+      error: 'Failed to add assignee',
+      message: error.message
+    });
+  }
+};
+
+// Remove assignee from task
+const removeAssignee = async (req, res) => {
+  try {
+    const { id, assigneeId } = req.params;
+    const userId = req.user.id;
+
+    // Check if user has access to the task
+    const accessCheck = await pool.query(
+      `SELECT t.id, p.owner_id, pm.role FROM tasks t
+       INNER JOIN projects p ON t.project_id = p.id
+       LEFT JOIN project_members pm ON p.id = pm.project_id
+       INNER JOIN task_assignees ta ON ta.task_id = t.id
+       WHERE t.id = $1 AND ta.id = $2 AND (p.owner_id = $3 OR pm.user_id = $3)`,
+      [id, assigneeId, userId]
+    );
+
+    if (accessCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Assignee not found or access denied' });
+    }
+
+    const { owner_id, role } = accessCheck.rows[0];
+    if (owner_id !== userId && role === 'viewer') {
+      return res.status(403).json({ error: 'Viewers cannot remove assignees' });
+    }
+
+    // Delete the assignee
+    await pool.query('DELETE FROM task_assignees WHERE id = $1', [assigneeId]);
+
+    res.json({ message: 'Assignee removed successfully' });
+  } catch (error) {
+    console.error('Error removing assignee:', error);
+    res.status(500).json({
+      error: 'Failed to remove assignee',
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getTasks,
   getTaskById,
@@ -538,5 +633,7 @@ module.exports = {
   updateTask,
   deleteTask,
   addComment,
-  deleteAttachment
+  deleteAttachment,
+  addAssignee,
+  removeAssignee
 };

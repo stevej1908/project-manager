@@ -8,7 +8,9 @@ const {
   updateTask,
   deleteTask,
   addComment,
-  deleteAttachment
+  deleteAttachment,
+  addAssignee,
+  removeAssignee
 } = require('../controllers/taskController');
 
 // All routes require authentication
@@ -26,5 +28,9 @@ router.post('/:id/comments', addComment);
 
 // Attachments
 router.delete('/attachments/:attachmentId', deleteAttachment);
+
+// Assignees
+router.post('/:id/assignees', addAssignee);
+router.delete('/:id/assignees/:assigneeId', removeAssignee);
 
 module.exports = router;

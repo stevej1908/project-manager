@@ -47,34 +47,79 @@ async function getUserOAuth2Client(userId) {
 const getContacts = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { pageSize = 50, pageToken } = req.query;
+    const { pageSize = 50 } = req.query;
+    const requestedSize = parseInt(pageSize);
 
     const auth = await getUserOAuth2Client(userId);
     const people = google.people({ version: 'v1', auth });
 
-    const response = await people.people.connections.list({
-      resourceName: 'people/me',
-      pageSize: parseInt(pageSize),
-      pageToken,
-      personFields: 'names,emailAddresses,photos'
+    // Fetch both "Other Contacts" (frequent/auto-saved) and "My Contacts" (manually saved)
+    // Prioritize "Other Contacts" since those are the people you interact with frequently
+
+    // 1. Get "Other Contacts" first (frequent contacts from Gmail/Calendar)
+    const otherContactsResponse = await people.otherContacts.list({
+      pageSize: requestedSize,
+      readMask: 'names,emailAddresses,photos'
     });
 
-    const contacts = response.data.connections || [];
+    const otherContacts = otherContactsResponse.data.otherContacts || [];
+    console.log(`Loaded ${otherContacts.length} Other Contacts (frequent)`);
 
-    // Format contacts for easier use
-    const formattedContacts = contacts.map(contact => ({
+    // 2. Get "My Contacts" (manually saved contacts)
+    const myContactsResponse = await people.people.connections.list({
+      resourceName: 'people/me',
+      pageSize: requestedSize,
+      personFields: 'names,emailAddresses,photos',
+      sources: ['READ_SOURCE_TYPE_CONTACT']
+    });
+
+    const myContacts = myContactsResponse.data.connections || [];
+    console.log(`Loaded ${myContacts.length} My Contacts (manually saved)`);
+
+    // 3. Format and merge contacts, prioritizing "Other Contacts" (frequent ones)
+    const formatContact = (contact) => ({
       resourceName: contact.resourceName,
       etag: contact.etag,
       name: contact.names?.[0]?.displayName || '',
       email: contact.emailAddresses?.[0]?.value || '',
       photo: contact.photos?.[0]?.url || null,
       googleId: contact.resourceName.replace('people/', '')
-    }));
+    });
+
+    const formattedOtherContacts = otherContacts.map(formatContact);
+    const formattedMyContacts = myContacts.map(formatContact);
+
+    // Merge with deduplication by email, prioritizing "Other Contacts"
+    const emailSet = new Set();
+    const mergedContacts = [];
+
+    // Add "Other Contacts" first (frequent/auto-saved - PRIORITY)
+    for (const contact of formattedOtherContacts) {
+      if (contact.email && !emailSet.has(contact.email.toLowerCase())) {
+        emailSet.add(contact.email.toLowerCase());
+        mergedContacts.push(contact);
+      }
+    }
+
+    // Add "My Contacts" that aren't already included
+    for (const contact of formattedMyContacts) {
+      if (contact.email && !emailSet.has(contact.email.toLowerCase())) {
+        emailSet.add(contact.email.toLowerCase());
+        mergedContacts.push(contact);
+
+        // Stop if we've reached the requested size
+        if (mergedContacts.length >= requestedSize) {
+          break;
+        }
+      }
+    }
+
+    console.log(`Total merged contacts: ${mergedContacts.length} (deduplicated)`);
 
     res.json({
-      contacts: formattedContacts,
-      nextPageToken: response.data.nextPageToken || null,
-      totalPeople: response.data.totalPeople || formattedContacts.length
+      contacts: mergedContacts,
+      nextPageToken: null, // We're merging multiple sources, so pagination is not supported
+      totalPeople: mergedContacts.length
     });
   } catch (error) {
     console.error('Error getting contacts:', error);

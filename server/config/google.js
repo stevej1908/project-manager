@@ -13,6 +13,7 @@ const SCOPES = [
   'https://www.googleapis.com/auth/userinfo.email',
   'https://www.googleapis.com/auth/userinfo.profile',
   'https://www.googleapis.com/auth/contacts.readonly',
+  'https://www.googleapis.com/auth/contacts.other.readonly', // Required for accessing frequent/auto-saved contacts
   'https://www.googleapis.com/auth/drive.readonly', // Changed from drive.file to drive.readonly for browsing files and shared drives
   'https://www.googleapis.com/auth/gmail.readonly',
 ];
