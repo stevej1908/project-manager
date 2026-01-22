@@ -77,8 +77,16 @@ export default function DriveFilePicker({ taskId, onClose, onFileAttached }) {
   };
 
   const handleSearch = (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     loadDriveFiles();
+  };
+
+  // Handle Enter key press on mobile
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      loadDriveFiles();
+    }
   };
 
   const handleAttachFile = async (file) => {
@@ -183,9 +191,12 @@ export default function DriveFilePicker({ taskId, onClose, onFileAttached }) {
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
-                type="text"
+                type="search"
+                inputMode="search"
+                enterKeyHint="search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={handleKeyDown}
                 placeholder={`Search ${activeTab === 'myDrive' ? 'My Drive' : 'Shared Drives'}...`}
                 className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
               />

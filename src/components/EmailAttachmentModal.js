@@ -68,8 +68,16 @@ export default function EmailAttachmentModal({ taskId, onClose, onEmailsAttached
   };
 
   const handleSearch = (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     loadEmails();
+  };
+
+  // Handle Enter key press on mobile
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      loadEmails();
+    }
   };
 
   const toggleEmailSelection = (emailId) => {
@@ -134,9 +142,12 @@ export default function EmailAttachmentModal({ taskId, onClose, onEmailsAttached
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
-                  type="text"
+                  type="search"
+                  inputMode="search"
+                  enterKeyHint="search"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={handleKeyDown}
                   placeholder="Search by subject, sender, or content..."
                   className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
