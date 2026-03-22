@@ -13,6 +13,7 @@ const taskRoutes = require('./routes/tasks');
 const googleRoutes = require('./routes/google');
 const userRoutes = require('./routes/users');
 const dependencyRoutes = require('./routes/dependencies');
+const importRoutes = require('./routes/import');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -86,6 +87,7 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/google', googleRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/dependencies', dependencyRoutes);
+app.use('/api/import', importRoutes);
 
 // 404 handler
 app.use((req, res) => {

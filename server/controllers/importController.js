@@ -89,7 +89,7 @@ function flattenJsonTasks(tasks, parentTitle = null) {
       if (key === 'subtasks' || key === 'children' || key === 'sub_tasks') {
         continue;
       }
-      if (Array.isArray(value) && key !== 'subtasks' && key !== 'children' && key !== 'sub_tasks') {
+      if (Array.isArray(value)) {
         // Join arrays (like assignees) with semicolons
         row[key] = value.join(';');
       } else {
@@ -240,13 +240,11 @@ const executeImport = async (req, res) => {
     );
 
     if (accessCheck.rows.length === 0) {
-      client.release();
       return res.status(404).json({ error: 'Project not found' });
     }
 
     const { owner_id, role } = accessCheck.rows[0];
     if (owner_id !== userId && role === 'viewer') {
-      client.release();
       return res.status(403).json({ error: 'Viewers cannot import tasks' });
     }
 
