@@ -140,3 +140,31 @@ export const dependenciesAPI = {
   update: (id, data) => apiRequest(`/dependencies/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id) => apiRequest(`/dependencies/${id}`, { method: 'DELETE' }),
 };
+
+// Import API
+export const importAPI = {
+  parseFile: (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const token = localStorage.getItem('authToken');
+    return fetch(`${API_BASE_URL}/import/parse`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    }).then(async (response) => {
+      if (response.status === 401) {
+        localStorage.removeItem('authToken');
+        window.location.href = '/';
+        throw new Error('Unauthorized');
+      }
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || data.error || 'Failed to parse file');
+      return data;
+    });
+  },
+  execute: (data) =>
+    apiRequest('/import/execute', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+};
