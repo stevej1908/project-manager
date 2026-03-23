@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { X, Upload, FileText, Check, AlertTriangle, ChevronRight, ChevronLeft, FileUp } from 'lucide-react';
 import { importAPI } from '../services/api';
 
@@ -36,6 +36,10 @@ export default function ImportTasksModal({ projectId, onClose, onImportComplete 
     const ext = file.name.split('.').pop().toLowerCase();
     if (!['csv', 'json'].includes(ext)) {
       setUploadError('Please upload a .csv or .json file');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setUploadError('File is too large. Maximum size is 5MB.');
       return;
     }
     try {
@@ -83,38 +87,53 @@ export default function ImportTasksModal({ projectId, onClose, onImportComplete 
     setMappings((prev) => ({ ...prev, [column]: field }));
   };
 
-  const hasTitleMapping = Object.values(mappings).includes('title');
+  const hasTitleMapping = useMemo(
+    () => Object.values(mappings).includes('title'),
+    [mappings]
+  );
 
-  const goToPreview = () => {
-    // Build preview rows and detect warnings
-    const newWarnings = [];
-    const previewRows = rows.map((row, idx) => {
+  // Track which system fields are already mapped (to prevent duplicates)
+  const usedFields = useMemo(() => {
+    const used = new Set();
+    Object.values(mappings).forEach((field) => {
+      if (field && field !== '__skip__') used.add(field);
+    });
+    return used;
+  }, [mappings]);
+
+  // Shared helper: apply mappings to rows
+  const applyMappings = useCallback((sourceRows, currentMappings) => {
+    return sourceRows.map((row) => {
       const mapped = {};
-      Object.entries(mappings).forEach(([col, field]) => {
+      Object.entries(currentMappings).forEach(([col, field]) => {
         if (field && field !== '__skip__') {
           mapped[field] = row[col];
         }
       });
+      return mapped;
+    });
+  }, []);
 
-      // Validate priority
+  const goToPreview = () => {
+    const previewRows = applyMappings(rows, mappings);
+
+    // Detect warnings
+    const newWarnings = [];
+    const titleCol = Object.entries(mappings).find(([, f]) => f === 'title')?.[0];
+
+    previewRows.forEach((mapped, idx) => {
       if (mapped.priority && !VALID_PRIORITIES.includes(mapped.priority?.toLowerCase())) {
         newWarnings.push({ row: idx, message: `Row ${idx + 1}: Invalid priority "${mapped.priority}"` });
       }
-      // Validate status
       if (mapped.status && !VALID_STATUSES.includes(mapped.status?.toLowerCase())) {
         newWarnings.push({ row: idx, message: `Row ${idx + 1}: Invalid status "${mapped.status}"` });
       }
-      // Check parent_task reference
       if (mapped.parent_task) {
-        const parentExists = rows.some((r) => {
-          const titleCol = Object.entries(mappings).find(([, f]) => f === 'title')?.[0];
-          return titleCol && r[titleCol] === mapped.parent_task;
-        });
+        const parentExists = rows.some((r) => titleCol && r[titleCol] === mapped.parent_task);
         if (!parentExists) {
           newWarnings.push({ row: idx, message: `Row ${idx + 1}: Parent task "${mapped.parent_task}" not found` });
         }
       }
-      return mapped;
     });
 
     setWarnings(newWarnings);
@@ -123,19 +142,10 @@ export default function ImportTasksModal({ projectId, onClose, onImportComplete 
   };
 
   // --- Step 3: Preview ---
-  const getMappedRows = () => {
-    return rows.map((row) => {
-      const mapped = {};
-      Object.entries(mappings).forEach(([col, field]) => {
-        if (field && field !== '__skip__') {
-          mapped[field] = row[col];
-        }
-      });
-      return mapped;
-    });
-  };
-
-  const mappedRows = step === 3 ? getMappedRows() : [];
+  const mappedRows = useMemo(
+    () => (step === 3 ? applyMappings(rows, mappings) : []),
+    [step, rows, mappings, applyMappings]
+  );
 
   const toggleRow = (idx) => {
     setSelectedRows((prev) =>
@@ -174,7 +184,10 @@ export default function ImportTasksModal({ projectId, onClose, onImportComplete 
 
   // --- Render ---
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+    <div
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+      onKeyDown={(e) => { if (e.key === 'Escape') handleClose(); }}
+    >
       <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
@@ -313,8 +326,12 @@ export default function ImportTasksModal({ projectId, onClose, onImportComplete 
                           >
                             <option value="__skip__">-- Skip --</option>
                             {systemFields.map((field) => (
-                              <option key={field.value} value={field.value}>
-                                {field.label}
+                              <option
+                                key={field.key}
+                                value={field.key}
+                                disabled={usedFields.has(field.key) && mappings[col] !== field.key}
+                              >
+                                {field.label}{usedFields.has(field.key) && mappings[col] !== field.key ? ' (mapped)' : ''}
                               </option>
                             ))}
                           </select>
