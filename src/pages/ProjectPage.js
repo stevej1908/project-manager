@@ -6,6 +6,7 @@ import {
   Settings,
   Share2,
   Mail,
+  Upload,
   LayoutGrid,
   BarChart3
 } from 'lucide-react';
@@ -16,14 +17,16 @@ import CreateTaskModal from '../components/CreateTaskModal';
 import ProjectSettingsModal from '../components/ProjectSettingsModal';
 import ShareProjectModal from '../components/ShareProjectModal';
 import GmailPickerModal from '../components/GmailPickerModal';
+import ImportTasksModal from '../components/ImportTasksModal';
 
 export default function ProjectPage({ projectId, onBack }) {
-  const { currentProject, loadProject, loading } = useContext(ProjectContext);
+  const { currentProject, loadProject, loadTasks, loading } = useContext(ProjectContext);
   const [view, setView] = useState('board'); // 'board' or 'gantt'
   const [showCreateTaskModal, setShowCreateTaskModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showGmailPicker, setShowGmailPicker] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   useEffect(() => {
     loadProject(projectId);
@@ -92,6 +95,14 @@ export default function ProjectPage({ projectId, onBack }) {
               </div>
 
               <button
+                onClick={() => setShowImportModal(true)}
+                className="flex items-center gap-2 px-3 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Import tasks from file"
+              >
+                <Upload className="w-4 h-4" />
+                <span className="hidden sm:inline">Import</span>
+              </button>
+              <button
                 onClick={() => setShowGmailPicker(true)}
                 className="flex items-center gap-2 px-3 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
                 title="Create task from Gmail"
@@ -157,6 +168,13 @@ export default function ProjectPage({ projectId, onBack }) {
         <GmailPickerModal
           projectId={projectId}
           onClose={() => setShowGmailPicker(false)}
+        />
+      )}
+      {showImportModal && (
+        <ImportTasksModal
+          projectId={projectId}
+          onClose={() => setShowImportModal(false)}
+          onImportComplete={() => loadTasks(projectId)}
         />
       )}
     </div>
