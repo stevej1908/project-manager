@@ -1,0 +1,4 @@
+Title,Description,Priority,Status,Start Date,End Date,Parent Task,Assignees
+Build landing page,Design and build homepage,high,todo,2026-04-01,2026-04-15,,
+Header section,Create header component,medium,todo,2026-04-01,2026-04-05,Build landing page,
+Footer section,Create footer component,low,todo,2026-04-06,2026-04-10,Build landing page,

@@ -1,0 +1,14 @@
+{
+  "tasks": [
+    {
+      "title": "API Development",
+      "description": "Build REST API endpoints",
+      "priority": "high",
+      "status": "todo",
+      "subtasks": [
+        { "title": "Auth endpoints", "priority": "high" },
+        { "title": "CRUD endpoints", "priority": "medium" }
+      ]
+    }
+  ]
+}

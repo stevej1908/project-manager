@@ -278,9 +278,17 @@ const executeImport = async (req, res) => {
     let failed = 0;
     const errors = [];
 
+    // Pre-compute reverse mapping: systemField -> column name
+    const reverseMap = {};
+    for (const [col, field] of Object.entries(mappings)) {
+      if (field && field !== '__skip__') {
+        reverseMap[field] = col;
+      }
+    }
+
     // Helper to get mapped value from a row
     function getMappedValue(row, systemField) {
-      const col = Object.keys(mappings).find(c => mappings[c] === systemField);
+      const col = reverseMap[systemField];
       if (!col) return null;
       const val = row[col];
       return val !== undefined && val !== null && val !== '' ? String(val).trim() : null;

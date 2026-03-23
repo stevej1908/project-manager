@@ -3,7 +3,7 @@ import { X, Upload, FileText, Check, AlertTriangle, ChevronRight, ChevronLeft, F
 import { importAPI } from '../services/api';
 
 const VALID_PRIORITIES = ['low', 'medium', 'high', 'urgent'];
-const VALID_STATUSES = ['todo', 'in_progress', 'in_review', 'done'];
+const VALID_STATUSES = ['todo', 'in_progress', 'review', 'done'];
 
 export default function ImportTasksModal({ projectId, onClose, onImportComplete }) {
   const [step, setStep] = useState(1);
@@ -510,7 +510,7 @@ export default function ImportTasksModal({ projectId, onClose, onImportComplete 
                   </div>
                   <ul className="text-sm ml-6 list-disc">
                     {importResult.errors.map((err, idx) => (
-                      <li key={idx}>{err}</li>
+                      <li key={idx}>{err.title ? `${err.title}: ${err.error}` : err.error || String(err)}</li>
                     ))}
                   </ul>
                 </div>
