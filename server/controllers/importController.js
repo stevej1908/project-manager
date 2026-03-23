@@ -223,6 +223,13 @@ const executeImport = async (req, res) => {
       });
     }
 
+    // Limit row count to prevent excessive imports
+    if (rows.length > 5000) {
+      return res.status(400).json({
+        error: `Too many rows (${rows.length}). Maximum is 5000 rows per import.`,
+      });
+    }
+
     // Check title mapping exists
     const titleColumn = Object.keys(mappings).find(col => mappings[col] === 'title');
     if (!titleColumn) {
@@ -266,7 +273,7 @@ const executeImport = async (req, res) => {
       }
     }
 
-    const createdTaskMap = {}; // title -> task id
+    const createdTaskMap = {}; // title -> task id (first occurrence wins)
     let created = 0;
     let failed = 0;
     const errors = [];
@@ -341,6 +348,11 @@ const executeImport = async (req, res) => {
       if (assigneesValue) {
         const assigneeList = assigneesValue.split(';').map(a => a.trim()).filter(Boolean);
         for (const email of assigneeList) {
+          // Basic email format validation
+          if (!email.includes('@')) {
+            errors.push({ title, error: `Invalid assignee email: "${email}"` });
+            continue;
+          }
           await client.query(
             `INSERT INTO task_assignees (task_id, contact_email, assigned_by)
              VALUES ($1, $2, $3)`,
@@ -357,7 +369,12 @@ const executeImport = async (req, res) => {
       try {
         const result = await createTask(row, null, 0);
         if (result) {
-          createdTaskMap[result.title] = result.id;
+          if (createdTaskMap[result.title]) {
+            // Duplicate title — warn but still create (first one is used for subtask linkage)
+            errors.push({ title: result.title, error: `Duplicate parent title "${result.title}" — subtasks will link to the first occurrence` });
+          } else {
+            createdTaskMap[result.title] = result.id;
+          }
           created++;
         }
       } catch (error) {

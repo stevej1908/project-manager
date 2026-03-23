@@ -26,7 +26,14 @@ const upload = multer({
 router.use(authenticate);
 
 // Parse uploaded file and return columns, rows, suggested mappings
-router.post('/parse', upload.single('file'), parseImportFile);
+router.post('/parse', (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    next();
+  });
+}, parseImportFile);
 
 // Execute import with mapped data
 router.post('/execute', executeImport);
