@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { tasksAPI, dependenciesAPI } from '../services/api';
+import { tasksAPI, dependenciesAPI, projectsAPI } from '../services/api';
 import GanttChart from './GanttChart';
 import LoadingSpinner from './LoadingSpinner';
 import TaskDetailsModal from './TaskDetailsModal';
@@ -12,8 +12,9 @@ import { AlertCircle, Filter, X } from 'lucide-react';
  * Displays tasks and dependencies in a timeline view
  *
  * @param {String} projectId - ID of the project to display
+ * @param {Boolean} crossProjectMode - When true, loads tasks from all child projects
  */
-export default function GanttView({ projectId }) {
+export default function GanttView({ projectId, crossProjectMode = false }) {
   const [tasks, setTasks] = useState([]);
   const [dependencies, setDependencies] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -41,17 +42,37 @@ export default function GanttView({ projectId }) {
       setLoading(true);
       setError(null);
 
-      // Fetch tasks and dependencies in parallel
-      const [tasksResponse, depsResponse] = await Promise.all([
-        tasksAPI.getAll(projectId),
-        dependenciesAPI.getAll(projectId)
-      ]);
+      if (crossProjectMode) {
+        // Load tasks from all child projects
+        const treeResponse = await projectsAPI.getTree(projectId);
+        const allTasks = treeResponse.all_tasks || [];
 
-      const tasks = tasksResponse.tasks || [];
-      const deps = depsResponse.dependencies || [];
+        // Load cross-project dependencies
+        const crossDepsResponse = await dependenciesAPI.getCrossProject(projectId);
+        const crossDeps = crossDepsResponse.dependencies || [];
 
-      setTasks(tasks);
-      setDependencies(deps);
+        // Also load regular deps for each child project
+        const childProjects = (treeResponse.tree || []).filter(p => p.id !== parseInt(projectId));
+        const depPromises = childProjects.map(p => dependenciesAPI.getAll(p.id).catch(() => ({ dependencies: [] })));
+        const depResponses = await Promise.all(depPromises);
+        const regularDeps = depResponses.flatMap(r => r.dependencies || []);
+
+        // Combine and deduplicate deps
+        const allDepsMap = new Map();
+        [...regularDeps, ...crossDeps].forEach(d => allDepsMap.set(d.id, d));
+
+        setTasks(allTasks);
+        setDependencies(Array.from(allDepsMap.values()));
+      } else {
+        // Standard single-project mode
+        const [tasksResponse, depsResponse] = await Promise.all([
+          tasksAPI.getAll(projectId),
+          dependenciesAPI.getAll(projectId)
+        ]);
+
+        setTasks(tasksResponse.tasks || []);
+        setDependencies(depsResponse.dependencies || []);
+      }
     } catch (err) {
       console.error('Error loading Gantt data:', err);
       setError(err.message || 'Failed to load Gantt chart data');

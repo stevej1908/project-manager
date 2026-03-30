@@ -16,7 +16,7 @@ import {
   Mail
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
-import { tasksAPI, dependenciesAPI, googleAPI } from '../services/api';
+import { tasksAPI, dependenciesAPI, googleAPI, projectsAPI } from '../services/api';
 import DriveFilePicker from './DriveFilePicker';
 import EmailAttachmentModal from './EmailAttachmentModal';
 import ContactsPickerModal from './ContactsPickerModal';
@@ -116,7 +116,34 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
       const allTasks = allTasksResponse.tasks || [];
 
       // Filter out current task from available tasks (can't depend on itself)
-      const available = allTasks.filter(t => t.id !== taskId);
+      let available = allTasks.filter(t => t.id !== taskId);
+
+      // Load sibling project tasks for cross-project dependencies
+      try {
+        const projectResponse = await projectsAPI.getById(taskData.project_id);
+        const project = projectResponse.project;
+        if (project.parent_project_id && project.sibling_projects && project.sibling_projects.length > 0) {
+          const siblingTaskPromises = project.sibling_projects.map(async (sib) => {
+            const res = await tasksAPI.getAll(sib.id);
+            return (res.tasks || []).map(t => ({
+              ...t,
+              _project_name: sib.name,
+              _project_color: sib.color,
+              _is_cross_project: true
+            }));
+          });
+          const siblingTaskArrays = await Promise.all(siblingTaskPromises);
+          const siblingTasks = siblingTaskArrays.flat();
+          available = [
+            ...available.map(t => ({ ...t, _project_name: project.name, _project_color: project.color })),
+            ...siblingTasks
+          ];
+        }
+      } catch (err) {
+        // Cross-project loading is non-critical
+        console.error('Error loading sibling project tasks:', err);
+      }
+
       setAvailableTasks(available);
 
       // Load sub-tasks if this task has any
@@ -240,7 +267,7 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
       if (onUpdate) onUpdate();
     } catch (error) {
       console.error('Error adding dependency:', error);
-      alert(error.response?.data?.message || 'Failed to add dependency');
+      alert(error.message || 'Failed to add dependency');
     }
   };
 

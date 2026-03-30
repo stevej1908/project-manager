@@ -6,19 +6,23 @@ const {
   createDependency,
   updateDependency,
   deleteDependency,
-  getTaskDependencies
+  getTaskDependencies,
+  getCrossProjectDependencies
 } = require('../controllers/dependencyController');
 
 // All routes require authentication
 router.use(authenticate);
+
+// Cross-project dependencies (must be before /:id routes)
+router.get('/cross-project', getCrossProjectDependencies);
+
+// Named routes must be before /:id to avoid shadowing
+router.get('/task/:taskId', getTaskDependencies);
 
 // Dependency CRUD
 router.get('/', getDependencies);
 router.post('/', createDependency);
 router.put('/:id', updateDependency);
 router.delete('/:id', deleteDependency);
-
-// Get dependencies for a specific task
-router.get('/task/:taskId', getTaskDependencies);
 
 module.exports = router;

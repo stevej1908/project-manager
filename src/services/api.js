@@ -49,9 +49,18 @@ export const authAPI = {
 export const projectsAPI = {
   getAll: (archived = false) => apiRequest(`/projects?archived=${archived}`),
   getById: (id) => apiRequest(`/projects/${id}`),
+  getChildren: (id) => apiRequest(`/projects/${id}/children`),
+  getTree: (id) => apiRequest(`/projects/${id}/tree`),
+  getByParent: (parentId) => apiRequest(`/projects?parent_id=${parentId}`),
   create: (data) => apiRequest('/projects', { method: 'POST', body: JSON.stringify(data) }),
   update: (id, data) => apiRequest(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  delete: (id) => apiRequest(`/projects/${id}`, { method: 'DELETE' }),
+  delete: (id, deleteChildren = false) =>
+    apiRequest(`/projects/${id}?delete_children=${deleteChildren}`, { method: 'DELETE' }),
+  reorder: (parentId, children) =>
+    apiRequest(`/projects/${parentId}/reorder`, {
+      method: 'PUT',
+      body: JSON.stringify({ children }),
+    }),
   share: (id, email, role) =>
     apiRequest(`/projects/${id}/share`, {
       method: 'POST',
@@ -59,6 +68,14 @@ export const projectsAPI = {
     }),
   removeMember: (projectId, memberId) =>
     apiRequest(`/projects/${projectId}/members/${memberId}`, { method: 'DELETE' }),
+};
+
+// Project Dependencies API
+export const projectDependenciesAPI = {
+  getAll: (projectId) => apiRequest(`/project-dependencies?projectId=${projectId}`),
+  create: (data) => apiRequest('/project-dependencies', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id, data) => apiRequest(`/project-dependencies/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id) => apiRequest(`/project-dependencies/${id}`, { method: 'DELETE' }),
 };
 
 // Tasks API
@@ -136,6 +153,7 @@ export const usersAPI = {
 export const dependenciesAPI = {
   getAll: (projectId) => apiRequest(`/dependencies?projectId=${projectId}`),
   getForTask: (taskId) => apiRequest(`/dependencies/task/${taskId}`),
+  getCrossProject: (parentProjectId) => apiRequest(`/dependencies/cross-project?parent_project_id=${parentProjectId}`),
   create: (data) => apiRequest('/dependencies', { method: 'POST', body: JSON.stringify(data) }),
   update: (id, data) => apiRequest(`/dependencies/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id) => apiRequest(`/dependencies/${id}`, { method: 'DELETE' }),

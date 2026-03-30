@@ -76,12 +76,31 @@ const createDependency = async (req, res) => {
       return res.status(404).json({ error: 'One or both tasks not found' });
     }
 
-    // Check if both tasks are in the same project
+    // Check if tasks are in different projects
     const projectIds = [...new Set(tasksCheck.rows.map(r => r.project_id))];
+    let isCrossProject = false;
+
     if (projectIds.length > 1) {
-      return res.status(400).json({
-        error: 'Cannot create dependency between tasks in different projects'
-      });
+      // Cross-project dependency: validate both projects are siblings (same parent)
+      const projectParents = await pool.query(
+        `SELECT id, parent_project_id FROM projects WHERE id = ANY($1::int[])`,
+        [projectIds]
+      );
+
+      const parents = projectParents.rows;
+      if (parents.length < 2 || parents[0].parent_project_id !== parents[1].parent_project_id) {
+        return res.status(400).json({
+          error: 'Cross-project dependencies can only be created between tasks in sibling projects (same parent)'
+        });
+      }
+
+      if (parents[0].parent_project_id === null) {
+        return res.status(400).json({
+          error: 'Cross-project dependencies require projects to share a common parent project'
+        });
+      }
+
+      isCrossProject = true;
     }
 
     // Check for circular dependency
@@ -100,9 +119,9 @@ const createDependency = async (req, res) => {
     const result = await pool.query(
       `INSERT INTO task_dependencies (
         dependent_task_id, depends_on_task_id, dependency_type,
-        lag_days, from_point, to_point, created_by
+        lag_days, from_point, to_point, created_by, is_cross_project
       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
       [
         dependent_task_id,
@@ -111,7 +130,8 @@ const createDependency = async (req, res) => {
         lag_days || 0,
         from_point || 100,
         to_point || 0,
-        userId
+        userId,
+        isCrossProject
       ]
     );
 
@@ -264,10 +284,62 @@ const getTaskDependencies = async (req, res) => {
   }
 };
 
+// Get cross-project task dependencies
+const getCrossProjectDependencies = async (req, res) => {
+  try {
+    const { parent_project_id } = req.query;
+    const userId = req.user.id;
+
+    if (!parent_project_id) {
+      return res.status(400).json({ error: 'parent_project_id query parameter is required' });
+    }
+
+    // Check access to parent project
+    const accessCheck = await pool.query(
+      `SELECT p.id FROM projects p
+       LEFT JOIN project_members pm ON p.id = pm.project_id
+       WHERE p.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+      [parent_project_id, userId]
+    );
+
+    if (accessCheck.rows.length === 0) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Get all cross-project dependencies where both tasks belong to children of the parent
+    const result = await pool.query(
+      `SELECT td.*,
+        t1.title as dependent_task_title, t1.project_id as dependent_project_id,
+        p1.name as dependent_project_name, p1.color as dependent_project_color,
+        t2.title as depends_on_task_title, t2.project_id as depends_on_project_id,
+        p2.name as depends_on_project_name, p2.color as depends_on_project_color
+       FROM task_dependencies td
+       INNER JOIN tasks t1 ON td.dependent_task_id = t1.id
+       INNER JOIN tasks t2 ON td.depends_on_task_id = t2.id
+       INNER JOIN projects p1 ON t1.project_id = p1.id
+       INNER JOIN projects p2 ON t2.project_id = p2.id
+       WHERE td.is_cross_project = true
+         AND p1.parent_project_id = $1
+         AND p2.parent_project_id = $1
+       ORDER BY td.created_at DESC`,
+      [parent_project_id]
+    );
+
+    res.json({ dependencies: result.rows });
+  } catch (error) {
+    console.error('Error getting cross-project dependencies:', error);
+    res.status(500).json({
+      error: 'Failed to get cross-project dependencies',
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getDependencies,
   createDependency,
   updateDependency,
   deleteDependency,
-  getTaskDependencies
+  getTaskDependencies,
+  getCrossProjectDependencies
 };

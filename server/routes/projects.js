@@ -8,7 +8,10 @@ const {
   updateProject,
   deleteProject,
   shareProject,
-  removeProjectMember
+  removeProjectMember,
+  getProjectChildren,
+  getProjectTree,
+  reorderProjects
 } = require('../controllers/projectController');
 
 // All routes require authentication
@@ -16,8 +19,15 @@ router.use(authenticate);
 
 // Project CRUD
 router.get('/', getProjects);
-router.get('/:id', getProjectById);
 router.post('/', createProject);
+
+// Project hierarchy
+router.get('/:id/children', getProjectChildren);
+router.get('/:id/tree', getProjectTree);
+router.put('/:id/reorder', reorderProjects);
+
+// Single project
+router.get('/:id', getProjectById);
 router.put('/:id', updateProject);
 router.delete('/:id', deleteProject);
 

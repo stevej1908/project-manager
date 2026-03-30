@@ -1,5 +1,5 @@
 import React, { createContext, useState } from 'react';
-import { projectsAPI, tasksAPI } from '../services/api';
+import { projectsAPI, tasksAPI, projectDependenciesAPI } from '../services/api';
 
 export const ProjectContext = createContext();
 
@@ -8,6 +8,9 @@ export function ProjectProvider({ children }) {
   const [currentProject, setCurrentProject] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [childProjects, setChildProjects] = useState([]);
+  const [parentProject, setParentProject] = useState(null);
+  const [projectDependencies, setProjectDependencies] = useState([]);
 
   const loadProjects = async () => {
     try {
@@ -26,6 +29,8 @@ export function ProjectProvider({ children }) {
       setLoading(true);
       const { project } = await projectsAPI.getById(projectId);
       setCurrentProject(project);
+      setChildProjects(project.children || []);
+      setParentProject(project.parent || null);
       await loadTasks(projectId);
     } catch (error) {
       console.error('Error loading project:', error);
@@ -43,10 +48,66 @@ export function ProjectProvider({ children }) {
     }
   };
 
+  const loadChildProjects = async (projectId) => {
+    try {
+      const { children: childData } = await projectsAPI.getChildren(projectId);
+      setChildProjects(childData);
+      return childData;
+    } catch (error) {
+      console.error('Error loading child projects:', error);
+      return [];
+    }
+  };
+
+  const loadProjectTree = async (projectId) => {
+    try {
+      const data = await projectsAPI.getTree(projectId);
+      return data;
+    } catch (error) {
+      console.error('Error loading project tree:', error);
+      return { tree: [], all_tasks: [] };
+    }
+  };
+
+  const reorderChildProjects = async (parentId, orderedChildren) => {
+    try {
+      await projectsAPI.reorder(parentId, orderedChildren);
+      setChildProjects(prev => {
+        const updated = [...prev];
+        for (const child of orderedChildren) {
+          const idx = updated.findIndex(c => c.id === child.id);
+          if (idx !== -1) {
+            updated[idx] = { ...updated[idx], position: child.position };
+          }
+        }
+        return updated.sort((a, b) => a.position - b.position);
+      });
+    } catch (error) {
+      console.error('Error reordering projects:', error);
+      throw error;
+    }
+  };
+
+  const loadProjectDependencies = async (projectId) => {
+    try {
+      const { dependencies } = await projectDependenciesAPI.getAll(projectId);
+      setProjectDependencies(dependencies);
+      return dependencies;
+    } catch (error) {
+      console.error('Error loading project dependencies:', error);
+      return [];
+    }
+  };
+
   const createProject = async (data) => {
     try {
       const { project } = await projectsAPI.create(data);
-      setProjects([project, ...projects]);
+      if (data.parent_project_id) {
+        // Refresh children of current project
+        setChildProjects(prev => [...prev, project]);
+      } else {
+        setProjects([project, ...projects]);
+      }
       return project;
     } catch (error) {
       console.error('Error creating project:', error);
@@ -68,10 +129,11 @@ export function ProjectProvider({ children }) {
     }
   };
 
-  const deleteProject = async (id) => {
+  const deleteProject = async (id, deleteChildren = false) => {
     try {
-      await projectsAPI.delete(id);
+      await projectsAPI.delete(id, deleteChildren);
       setProjects(projects.filter((p) => p.id !== id));
+      setChildProjects(prev => prev.filter(p => p.id !== id));
       if (currentProject && currentProject.id === id) {
         setCurrentProject(null);
       }
@@ -124,9 +186,16 @@ export function ProjectProvider({ children }) {
         currentProject,
         tasks,
         loading,
+        childProjects,
+        parentProject,
+        projectDependencies,
         loadProjects,
         loadProject,
         loadTasks,
+        loadChildProjects,
+        loadProjectTree,
+        reorderChildProjects,
+        loadProjectDependencies,
         createProject,
         updateProject,
         deleteProject,
