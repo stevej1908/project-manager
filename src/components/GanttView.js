@@ -14,7 +14,7 @@ import { AlertCircle, Filter, X } from 'lucide-react';
  * @param {String} projectId - ID of the project to display
  * @param {Boolean} crossProjectMode - When true, loads tasks from all child projects
  */
-export default function GanttView({ projectId, crossProjectMode = false }) {
+export default function GanttView({ projectId, crossProjectMode = false, focusTaskId = null }) {
   const [tasks, setTasks] = useState([]);
   const [dependencies, setDependencies] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -339,6 +339,7 @@ export default function GanttView({ projectId, crossProjectMode = false }) {
             onTaskUpdate={handleTaskUpdate}
             onTaskClick={handleTaskClick}
             viewMode="Week"
+            focusTaskId={focusTaskId}
             showCriticalPathOnly={filters.showCriticalPathOnly}
           />
         )}

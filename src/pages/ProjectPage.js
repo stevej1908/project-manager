@@ -206,7 +206,7 @@ export default function ProjectPage({ projectId, onBack, initialView, focusTaskI
             onAddSubProject={() => setShowCreateSubProjectModal(true)}
           />
         ) : view === 'gantt' ? (
-          <GanttView projectId={projectId} />
+          <GanttView projectId={projectId} focusTaskId={focusTaskId} />
         ) : (
           <TaskListView projectId={projectId} />
         )}

@@ -20,7 +20,8 @@ export default function GanttChart({
   dependencies = [],
   onTaskUpdate,
   onTaskClick,
-  viewMode = 'Week'
+  viewMode = 'Week',
+  focusTaskId = null
 }) {
   const ganttContainer = useRef(null);
   const ganttInstance = useRef(null);
@@ -28,6 +29,21 @@ export default function GanttChart({
   const taskNamesRef = useRef(null);
   const ganttScrollRef = useRef(null);
   const [currentViewMode, setCurrentViewMode] = useState(viewMode);
+
+  // Scroll to + briefly highlight a specific task (e.g. one just created from the
+  // CRM "Assign to Project Manager" hand-off via ?task=). No-op if not found.
+  useEffect(() => {
+    if (!focusTaskId) return;
+    const selector = `.bar-wrapper[data-id="task_${focusTaskId}"]`;
+    const t = setTimeout(() => {
+      const el = ganttContainer.current && ganttContainer.current.querySelector(selector);
+      if (!el) return;
+      el.classList.add('bar-focus');
+      try { el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }); } catch (e) { /* ignore */ }
+      setTimeout(() => { try { el.classList.remove('bar-focus'); } catch (e) {} }, 4000);
+    }, 700);
+    return () => clearTimeout(t);
+  }, [focusTaskId, tasks]);
 
   // Calculate progress based on subtasks or status
   const calculateProgress = useCallback((task) => {
@@ -691,6 +707,19 @@ export default function GanttChart({
         /* Fix for bars disappearing on scroll */
         .gantt .bar-wrapper {
           pointer-events: auto;
+        }
+
+        /* Focused task (deep-linked from the CRM hand-off) — brief highlight */
+        .gantt .bar-wrapper.bar-focus .bar {
+          stroke: #2563eb;
+          stroke-width: 3px;
+        }
+        .gantt .bar-wrapper.bar-focus {
+          animation: barFocusPulse 0.9s ease-in-out 0s 3;
+        }
+        @keyframes barFocusPulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
         }
 
         /* Ensure proper rendering and prevent black screen on scroll */
