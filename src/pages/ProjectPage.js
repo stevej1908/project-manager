@@ -25,10 +25,10 @@ import ShareProjectModal from '../components/ShareProjectModal';
 import GmailPickerModal from '../components/GmailPickerModal';
 import ImportTasksModal from '../components/ImportTasksModal';
 
-export default function ProjectPage({ projectId, onBack }) {
+export default function ProjectPage({ projectId, onBack, initialView, focusTaskId }) {
   const { setCurrentView } = useContext(AuthContext);
   const { currentProject, loadProject, loadTasks, loading } = useContext(ProjectContext);
-  const [view, setView] = useState('board'); // 'board', 'gantt', or 'overview'
+  const [view, setView] = useState(initialView || 'board'); // 'board', 'gantt', or 'overview'
   const [showCreateTaskModal, setShowCreateTaskModal] = useState(false);
   const [showCreateSubProjectModal, setShowCreateSubProjectModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);

@@ -32,8 +32,15 @@ export default function AuthCallbackPage() {
         if (success) {
           // Wait a bit more for Safari/iOS
           await new Promise(resolve => setTimeout(resolve, 500));
-          console.log('AuthCallback - Token set successfully, redirecting');
-          window.location.href = '/';
+          // Resume a deep link if one was stashed before login (e.g. the CRM
+          // "Assign to Project Manager" hand-off landed here unauthenticated).
+          let dest = '/';
+          try {
+            const pending = localStorage.getItem('pendingDeepLink');
+            if (pending) { dest = pending; localStorage.removeItem('pendingDeepLink'); }
+          } catch (e) { /* ignore */ }
+          console.log('AuthCallback - Token set successfully, redirecting to', dest);
+          window.location.href = dest;
         } else {
           console.error('AuthCallback - Failed to set token');
           window.location.href = '/auth/error?error=Failed to store authentication token';
