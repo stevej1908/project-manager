@@ -41,6 +41,13 @@ const handleGoogleCallback = async (req, res) => {
     const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
     const { data } = await oauth2.userinfo.get();
 
+    // Restrict to allowed domain if configured
+    const allowedDomain = process.env.ALLOWED_DOMAIN;
+    if (allowedDomain && !data.email.endsWith(`@${allowedDomain}`)) {
+      const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').trim();
+      return res.redirect(`${frontendUrl}/auth/error?message=${encodeURIComponent('Only @' + allowedDomain + ' accounts are allowed')}`);
+    }
+
     // Check if user exists in database
     let userResult = await pool.query(
       'SELECT * FROM users WHERE google_id = $1',
@@ -88,6 +95,40 @@ const handleGoogleCallback = async (req, res) => {
         ]
       );
       user = updateResult.rows[0];
+    }
+
+    // Process any pending project invitations for this user
+    try {
+      const pendingInvites = await pool.query(
+        'SELECT id, project_id, role, invited_by FROM project_invitations WHERE email = $1',
+        [user.email]
+      );
+
+      for (const invite of pendingInvites.rows) {
+        // Check if already a member (shouldn't happen, but just in case)
+        const existingMember = await pool.query(
+          'SELECT id FROM project_members WHERE project_id = $1 AND user_id = $2',
+          [invite.project_id, user.id]
+        );
+
+        if (existingMember.rows.length === 0) {
+          await pool.query(
+            'INSERT INTO project_members (project_id, user_id, role, added_by) VALUES ($1, $2, $3, $4)',
+            [invite.project_id, user.id, invite.role, invite.invited_by]
+          );
+        }
+      }
+
+      // Remove processed invitations
+      if (pendingInvites.rows.length > 0) {
+        await pool.query(
+          'DELETE FROM project_invitations WHERE email = $1',
+          [user.email]
+        );
+      }
+    } catch (inviteError) {
+      console.error('Error processing pending invitations:', inviteError);
+      // Don't block login if invitation processing fails
     }
 
     // Generate JWT token

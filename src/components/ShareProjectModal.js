@@ -21,10 +21,14 @@ export default function ShareProjectModal({ project, onClose }) {
     try {
       setLoading(true);
       setError('');
-      await projectsAPI.share(project.id, email, role);
-      setSuccess(`Project shared with ${email}`);
+      const result = await projectsAPI.share(project.id, email, role);
+      if (result.invited) {
+        setSuccess(`Invitation sent to ${email}. They'll see this project when they sign in.`);
+      } else {
+        setSuccess(`Project shared with ${email}`);
+      }
       setEmail('');
-      setTimeout(() => setSuccess(''), 3000);
+      setTimeout(() => setSuccess(''), 5000);
     } catch (err) {
       setError(err.message || 'Failed to share project');
     } finally {
@@ -82,7 +86,7 @@ export default function ShareProjectModal({ project, onClose }) {
               </button>
             </div>
             <p className="mt-1 text-xs text-gray-500">
-              User must have an account to be added
+              If the user hasn't signed in yet, they'll receive access when they do
             </p>
           </div>
 

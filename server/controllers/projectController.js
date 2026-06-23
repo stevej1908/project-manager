@@ -521,12 +521,39 @@ const shareProject = async (req, res) => {
     );
 
     if (userResult.rows.length === 0) {
-      return res.status(404).json({
-        error: 'User with this email not found. They need to sign up first.'
+      // User doesn't exist yet — create a pending invitation
+      const existingInvite = await pool.query(
+        'SELECT id FROM project_invitations WHERE project_id = $1 AND email = $2',
+        [id, email]
+      );
+
+      if (existingInvite.rows.length > 0) {
+        // Update existing invitation role
+        await pool.query(
+          'UPDATE project_invitations SET role = $1 WHERE project_id = $2 AND email = $3',
+          [role, id, email]
+        );
+      } else {
+        await pool.query(
+          'INSERT INTO project_invitations (project_id, email, role, invited_by) VALUES ($1, $2, $3, $4)',
+          [id, email, role, userId]
+        );
+      }
+
+      return res.json({
+        message: `Invitation sent to ${email}. They will see this project when they sign in.`,
+        invited: true
       });
     }
 
     const shareWithUserId = userResult.rows[0].id;
+
+    // Don't allow sharing with yourself
+    if (shareWithUserId === userId) {
+      return res.status(400).json({
+        error: 'You cannot share a project with yourself'
+      });
+    }
 
     // Check if already shared
     const existingShare = await pool.query(
@@ -560,6 +587,12 @@ const shareProject = async (req, res) => {
       FROM desc d
       ON CONFLICT (project_id, user_id) DO UPDATE SET role = $3`,
       [id, shareWithUserId, role, userId]
+    );
+
+    // Remove any pending invitation for this email since they're now added
+    await pool.query(
+      'DELETE FROM project_invitations WHERE project_id = $1 AND email = $2',
+      [id, email]
     );
 
     res.json({ message: 'Project shared successfully' });

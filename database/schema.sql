@@ -76,6 +76,23 @@ CREATE TABLE project_members (
 );
 
 -- ============================================
+-- PROJECT_INVITATIONS TABLE
+-- Stores pending project invitations for users who haven't signed up yet
+-- ============================================
+CREATE TABLE project_invitations (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    email VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL DEFAULT 'editor',
+    invited_by INTEGER NOT NULL REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_id, email)
+);
+
+CREATE INDEX idx_project_invitations_email ON project_invitations(email);
+CREATE INDEX idx_project_invitations_project ON project_invitations(project_id);
+
+-- ============================================
 -- TASKS TABLE
 -- Stores task information
 -- ============================================
