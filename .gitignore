@@ -41,3 +41,6 @@ save-auth-session.js
 find-auth-data.html
 copy-auth-token.md
 screenshot-*.png
+
+# secrets doc — never commit (values live in Vercel env)
+VERCEL_ENV_VARS.md
