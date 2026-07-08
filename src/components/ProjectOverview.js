@@ -18,8 +18,7 @@ export default function ProjectOverview({ projectId, onNavigateToProject, onAddS
   const {
     childProjects,
     loadChildProjects,
-    reorderChildProjects,
-    currentProject
+    reorderChildProjects
   } = useContext(ProjectContext);
 
   const [projectDeps, setProjectDeps] = useState([]);

@@ -341,9 +341,15 @@ const updateTask = async (req, res) => {
     } = req.body;
     const userId = req.user.id;
 
+    // Re-parent / promote intent. Presence of the key (even null) signals a
+    // change: an id moves the task under a new parent; null promotes it to a
+    // top-level task. Absent = leave the parent unchanged.
+    const reparent = Object.prototype.hasOwnProperty.call(req.body, 'parent_task_id');
+    const newParentId = reparent ? (req.body.parent_task_id || null) : undefined;
+
     // Check if user has edit access
     const accessCheck = await client.query(
-      `SELECT t.parent_task_id, p.owner_id, pm.role,
+      `SELECT t.parent_task_id, t.project_id, p.owner_id, pm.role,
         (SELECT COUNT(*) FROM tasks WHERE parent_task_id = t.id) as subtask_count
        FROM tasks t
        INNER JOIN projects p ON t.project_id = p.id
@@ -356,7 +362,7 @@ const updateTask = async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
 
-    const { parent_task_id, owner_id, role, subtask_count } = accessCheck.rows[0];
+    const { parent_task_id, project_id, owner_id, role, subtask_count } = accessCheck.rows[0];
 
     if (owner_id !== userId && role === 'viewer') {
       return res.status(403).json({
@@ -406,7 +412,90 @@ const updateTask = async (req, res) => {
       );
     }
 
+    // Re-parent / promote: move this task (and its whole subtree) under a new
+    // parent, or to the top level (newParentId === null).
+    let reparented = false;
+    let parentsToRefresh = [];
+    if (reparent && (newParentId || null) !== (parent_task_id || null)) {
+      let newBase = 0;
+      if (newParentId !== null) {
+        if (Number(newParentId) === Number(id)) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'A task cannot be its own parent' });
+        }
+        const pc = await client.query(
+          'SELECT depth_level, project_id FROM tasks WHERE id = $1',
+          [newParentId]
+        );
+        if (pc.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: 'Parent task not found' });
+        }
+        if (pc.rows[0].project_id !== project_id) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'Parent task must be in the same project' });
+        }
+        // Cycle guard: the new parent must not be inside this task's own subtree.
+        const cycle = await client.query(
+          `WITH RECURSIVE sub AS (
+             SELECT id FROM tasks WHERE id = $1
+             UNION ALL
+             SELECT t.id FROM tasks t JOIN sub ON t.parent_task_id = sub.id
+           )
+           SELECT 1 FROM sub WHERE id = $2 LIMIT 1`,
+          [id, newParentId]
+        );
+        if (cycle.rows.length > 0) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'Cannot move a task under one of its own subtasks' });
+        }
+        newBase = pc.rows[0].depth_level + 1;
+      }
+
+      await client.query(
+        'UPDATE tasks SET parent_task_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        [newParentId, id]
+      );
+
+      // Recompute depth_level for the moved task and every descendant.
+      await client.query(
+        `WITH RECURSIVE sub AS (
+           SELECT id, $2::int AS d FROM tasks WHERE id = $1
+           UNION ALL
+           SELECT t.id, sub.d + 1 FROM tasks t JOIN sub ON t.parent_task_id = sub.id
+         )
+         UPDATE tasks SET depth_level = sub.d FROM sub WHERE tasks.id = sub.id`,
+        [id, newBase]
+      );
+
+      // The old and new parents' child sets changed — remember them so we can
+      // recompute their derived status AFTER commit (calculateParentStatus reads
+      // the pool, which can't see this still-open transaction).
+      parentsToRefresh = [parent_task_id, newParentId];
+      reparented = true;
+    }
+
     await client.query('COMMIT');
+
+    // Post-commit: refresh derived status on the affected parents against
+    // committed data. Skip a parent that is now childless — don't force a leaf
+    // task to 'todo'.
+    for (const pid of parentsToRefresh) {
+      if (!pid) continue;
+      const cc = await pool.query('SELECT COUNT(*)::int AS n FROM tasks WHERE parent_task_id = $1', [pid]);
+      if (cc.rows[0].n === 0) continue;
+      const st = await calculateParentStatus(pid);
+      await pool.query(
+        `UPDATE tasks SET status = $1, completed_at = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
+        [st, st === 'done' ? new Date() : null, pid]
+      );
+    }
+
+    // If we re-parented, return the fresh row (parent/depth changed post-update).
+    if (reparented) {
+      const fresh = await pool.query('SELECT * FROM tasks WHERE id = $1', [id]);
+      return res.json({ task: fresh.rows[0] });
+    }
     res.json({ task: result.rows[0] });
   } catch (error) {
     await client.query('ROLLBACK');

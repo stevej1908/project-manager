@@ -175,7 +175,7 @@ export default function ProjectPage({ projectId, onBack, initialView, focusTaskI
                 <Settings className="w-4 h-4" />
                 <span className="hidden sm:inline">Settings</span>
               </button>
-              {hasChildren && (
+              {(currentProject.depth || 0) < 2 && (
                 <button
                   onClick={() => setShowCreateSubProjectModal(true)}
                   className="flex items-center gap-2 px-3 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"

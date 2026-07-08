@@ -240,20 +240,20 @@ export default function DashboardPage() {
                           </button>
                         )}
                       </div>
-                      {childCount > 0 && (
-                        <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2">
+                        {childCount > 0 && (
                           <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
                             {childCount} sub-project{childCount !== 1 ? 's' : ''}
                           </span>
-                          <button
-                            onClick={(e) => handleCreateSubProject(e, project.id, project.name)}
-                            className="p-1 hover:bg-gray-100 rounded transition-colors"
-                            title="Add sub-project"
-                          >
-                            <Plus className="w-4 h-4 text-gray-400" />
-                          </button>
-                        </div>
-                      )}
+                        )}
+                        <button
+                          onClick={(e) => handleCreateSubProject(e, project.id, project.name)}
+                          className="p-1 hover:bg-gray-100 rounded transition-colors"
+                          title="Add sub-project"
+                        >
+                          <Plus className="w-4 h-4 text-gray-400" />
+                        </button>
+                      </div>
                     </div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-2">
                       {project.name}

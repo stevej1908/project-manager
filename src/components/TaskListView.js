@@ -155,19 +155,17 @@ export default function TaskListView({ projectId }) {
                 </span>
               )}
 
-              {/* Add Sub-task button (only for parent tasks) */}
-              {depth === 0 && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleCreateTask(task.id);
-                  }}
-                  className="ml-2 p-1 text-primary-600 hover:bg-primary-50 rounded transition-colors"
-                  title="Add sub-task"
-                >
-                  <Plus className="w-3 h-3" />
-                </button>
-              )}
+              {/* Add Sub-task button — available at any level */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCreateTask(task.id);
+                }}
+                className="ml-2 p-1 text-primary-600 hover:bg-primary-50 rounded transition-colors"
+                title="Add sub-task"
+              >
+                <Plus className="w-3 h-3" />
+              </button>
             </div>
           </td>
 

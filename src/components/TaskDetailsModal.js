@@ -13,13 +13,16 @@ import {
   Link as LinkIcon,
   ExternalLink,
   FolderOpen,
-  Mail
+  Mail,
+  ArrowUp,
+  CornerDownRight
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { tasksAPI, dependenciesAPI, googleAPI, projectsAPI } from '../services/api';
 import DriveFilePicker from './DriveFilePicker';
 import EmailAttachmentModal from './EmailAttachmentModal';
 import ContactsPickerModal from './ContactsPickerModal';
+import CreateTaskModal from './CreateTaskModal';
 
 const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'urgent'];
 const STATUS_OPTIONS = ['todo', 'in_progress', 'review', 'done'];
@@ -47,6 +50,13 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
   const [subTasks, setSubTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // Hierarchy state (add subtask / re-parent / promote)
+  const [showCreateSubtask, setShowCreateSubtask] = useState(false);
+  const [parentTask, setParentTask] = useState(null);
+  const [reparentOptions, setReparentOptions] = useState([]);
+  const [reparentTargetId, setReparentTargetId] = useState('');
+  const [reparenting, setReparenting] = useState(false);
 
   // Edit state - track all changes
   const [editedTask, setEditedTask] = useState({});
@@ -114,6 +124,23 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
       // Load all tasks for dependency dropdown and sub-tasks
       const allTasksResponse = await tasksAPI.getAll(taskData.project_id);
       const allTasks = allTasksResponse.tasks || [];
+
+      // Resolve the current parent (for the "Promote" affordance) and build the
+      // re-parent picker: same-project tasks that are not this task or any of
+      // its descendants (re-parenting is same-project only; cycle guard on API).
+      setParentTask(allTasks.find(t => t.id === taskData.parent_task_id) || null);
+      const descendants = new Set();
+      const collectDescendants = (pid) => {
+        allTasks.forEach(t => {
+          if (t.parent_task_id === pid && !descendants.has(t.id)) {
+            descendants.add(t.id);
+            collectDescendants(t.id);
+          }
+        });
+      };
+      collectDescendants(taskId);
+      setReparentOptions(allTasks.filter(t => t.id !== taskId && !descendants.has(t.id)));
+      setReparentTargetId('');
 
       // Filter out current task from available tasks (can't depend on itself)
       let available = allTasks.filter(t => t.id !== taskId);
@@ -215,6 +242,28 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
       end_date: task.end_date ? task.end_date.split('T')[0] : ''
     });
     setHasChanges(false);
+  };
+
+  // Re-parent the task under a chosen parent, or promote it to top-level
+  // (newParentId === null). Persists via updateTask's parent_task_id support.
+  const changeParent = async (newParentId) => {
+    try {
+      setReparenting(true);
+      const response = await tasksAPI.update(taskId, { parent_task_id: newParentId });
+      await loadTaskDetails();
+      if (onUpdate) onUpdate(response.task);
+    } catch (error) {
+      console.error('Error changing task parent:', error);
+      alert(error.message || 'Failed to move task');
+    } finally {
+      setReparenting(false);
+    }
+  };
+
+  const handleSubtaskCreated = async () => {
+    setShowCreateSubtask(false);
+    await loadTaskDetails();
+    if (onUpdate) onUpdate();
   };
 
   const handleAddComment = async (e) => {
@@ -856,39 +905,89 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
               </div>
 
               {/* Sub-tasks */}
-              {subTasks.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-gray-700">
                     Sub-tasks ({subTasks.length})
                   </label>
-                  <div className="space-y-2">
-                    {subTasks.map((subTask) => (
-                      <div key={subTask.id} className="bg-gray-50 rounded-lg p-2">
-                        <p className="text-sm font-medium text-gray-900">{subTask.title}</p>
-                        <span
-                          className={`inline-block mt-1 px-2 py-0.5 text-xs rounded ${
-                            STATUS_COLORS[subTask.status]
-                          }`}
-                        >
-                          {subTask.status.replace('_', ' ')}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                  <button
+                    onClick={() => setShowCreateSubtask(true)}
+                    className="flex items-center gap-1 text-primary-600 hover:text-primary-700 p-1 text-sm"
+                    title="Add sub-task"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span className="text-xs">Add</span>
+                  </button>
                 </div>
-              )}
+                <div className="space-y-2">
+                  {subTasks.map((subTask) => (
+                    <div key={subTask.id} className="bg-gray-50 rounded-lg p-2">
+                      <p className="text-sm font-medium text-gray-900">{subTask.title}</p>
+                      <span
+                        className={`inline-block mt-1 px-2 py-0.5 text-xs rounded ${
+                          STATUS_COLORS[subTask.status]
+                        }`}
+                      >
+                        {subTask.status.replace('_', ' ')}
+                      </span>
+                    </div>
+                  ))}
+                  {subTasks.length === 0 && (
+                    <p className="text-sm text-gray-500 py-2">No sub-tasks</p>
+                  )}
+                </div>
+              </div>
 
-              {/* Parent Task */}
-              {task.parent_task_title && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Parent Task
-                  </label>
-                  <div className="bg-gray-50 rounded-lg p-2">
-                    <p className="text-sm text-gray-900">{task.parent_task_title}</p>
+              {/* Hierarchy: parent, promote, re-parent */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Parent Task
+                </label>
+                {parentTask ? (
+                  <div className="bg-gray-50 rounded-lg p-2 flex items-start justify-between gap-2">
+                    <p className="text-sm text-gray-900 min-w-0 truncate">{parentTask.title}</p>
+                    <button
+                      onClick={() => changeParent(null)}
+                      disabled={reparenting}
+                      className="flex items-center gap-1 text-primary-600 hover:text-primary-700 text-xs flex-shrink-0 disabled:opacity-50"
+                      title="Promote to top-level task"
+                    >
+                      <ArrowUp className="w-3.5 h-3.5" />
+                      Promote
+                    </button>
                   </div>
-                </div>
-              )}
+                ) : (
+                  <p className="text-sm text-gray-500 py-1">Top-level task</p>
+                )}
+
+                {reparentOptions.length > 0 && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <div className="relative flex-1 min-w-0">
+                      <CornerDownRight className="w-4 h-4 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <select
+                        value={reparentTargetId}
+                        onChange={(e) => setReparentTargetId(e.target.value)}
+                        disabled={reparenting}
+                        className="w-full pl-8 pr-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50"
+                      >
+                        <option value="">Make subtask of…</option>
+                        {reparentOptions.map((t) => (
+                          <option key={t.id} value={t.id} disabled={t.id === task.parent_task_id}>
+                            {t.parent_task_id ? '└─ ' : ''}{t.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      onClick={() => changeParent(Number(reparentTargetId))}
+                      disabled={reparenting || !reparentTargetId}
+                      className="px-3 py-1.5 bg-primary-600 text-white text-sm rounded hover:bg-primary-700 disabled:opacity-50 flex-shrink-0"
+                    >
+                      Move
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -959,6 +1058,15 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
           onContactsSelected={handleContactsSelected}
           multiSelect={true}
           title="Add Assignees"
+        />
+      )}
+
+      {/* Create Sub-Task Modal */}
+      {showCreateSubtask && (
+        <CreateTaskModal
+          projectId={task.project_id}
+          parentTaskId={taskId}
+          onClose={handleSubtaskCreated}
         />
       )}
     </div>

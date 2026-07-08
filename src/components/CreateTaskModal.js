@@ -4,6 +4,7 @@ import { X, User, Plus, Trash2 } from 'lucide-react';
 import ContactsPickerModal from './ContactsPickerModal';
 
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'];
+const STATUSES = ['todo', 'in_progress', 'review', 'done'];
 
 export default function CreateTaskModal({ projectId, initialStatus = 'todo', parentTaskId = null, onClose }) {
   const { createTask, loadTasks } = useContext(ProjectContext);
@@ -12,6 +13,7 @@ export default function CreateTaskModal({ projectId, initialStatus = 'todo', par
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [priority, setPriority] = useState('medium');
+  const [status, setStatus] = useState(initialStatus);
   const [assignees, setAssignees] = useState([]);
   const [showContactsPicker, setShowContactsPicker] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -42,7 +44,7 @@ export default function CreateTaskModal({ projectId, initialStatus = 'todo', par
         start_date: startDate || null,
         end_date: endDate || null,
         priority,
-        status: initialStatus,
+        status,
         parent_task_id: parentTaskId,
         assignees: assigneesData
       });
@@ -151,6 +153,21 @@ export default function CreateTaskModal({ projectId, initialStatus = 'todo', par
                 </button>
               ))}
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              {STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s.replace('_', ' ')}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Assignees */}
