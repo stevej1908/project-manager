@@ -13,24 +13,31 @@
  * Run: npx playwright test --project=setup --headed
  */
 
-const { test as setup, expect } = require('@playwright/test');
+const { test: setup, expect } = require('@playwright/test');
 const path = require('path');
+const fs = require('fs');
 
 const authFile = path.join(__dirname, '.auth', 'user.json');
 
 setup('authenticate with Google OAuth', async ({ page }) => {
+  // Skip if auth state already exists
+  if (fs.existsSync(authFile)) {
+    console.log('\n✅ Auth state already exists, skipping OAuth setup.');
+    return;
+  }
+
+  setup.setTimeout(180000); // 3 minutes to complete OAuth
+
   console.log('\n🔐 AUTHENTICATION SETUP');
   console.log('Please complete Google OAuth login manually in the browser...\n');
 
   // Go to the login page
-  await page.goto('http://localhost:3000');
+  const baseUrl = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000';
+  await page.goto(baseUrl);
 
-  // Wait for Google OAuth redirect/login
-  // This is where you manually complete the OAuth flow in the browser
-  await page.waitForURL('**/dashboard', { timeout: 120000 }); // 2 minutes to complete OAuth
-
-  // Verify we're logged in
-  await expect(page).toHaveURL(/dashboard/);
+  // Wait for user to complete Google OAuth and return to the app
+  // The callback URL contains a token param, then redirects to /
+  await page.waitForSelector('text=My Projects', { timeout: 120000 });
 
   // Save signed-in state to 'user.json'
   await page.context().storageState({ path: authFile });
