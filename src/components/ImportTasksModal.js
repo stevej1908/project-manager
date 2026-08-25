@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { X, Upload, FileText, Check, AlertTriangle, ChevronRight, ChevronLeft, FileUp } from 'lucide-react';
+import { X, FileText, Check, AlertTriangle, ChevronRight, ChevronLeft, FileUp } from 'lucide-react';
 import { importAPI } from '../services/api';
 
 const VALID_PRIORITIES = ['low', 'medium', 'high', 'urgent'];
@@ -494,6 +494,11 @@ export default function ImportTasksModal({ projectId, onClose, onImportComplete 
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">Import Complete</h3>
                 <p className="text-gray-600">
                   {importResult.created} task{importResult.created !== 1 ? 's' : ''} created successfully
+                  {importResult.dependenciesCreated > 0 && (
+                    <span>
+                      , {importResult.dependenciesCreated} dependenc{importResult.dependenciesCreated !== 1 ? 'ies' : 'y'} linked
+                    </span>
+                  )}
                   {importResult.failed > 0 && (
                     <span className="text-red-600">
                       , {importResult.failed} task{importResult.failed !== 1 ? 's' : ''} failed

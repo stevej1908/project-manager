@@ -10,6 +10,7 @@ const SYSTEM_FIELDS = [
   { key: 'end_date', label: 'End Date', required: false },
   { key: 'parent_task', label: 'Parent Task', required: false },
   { key: 'assignees', label: 'Assignees', required: false },
+  { key: 'depends_on', label: 'Depends On', required: false },
 ];
 
 const VALID_PRIORITIES = ['low', 'medium', 'high', 'urgent'];
@@ -71,6 +72,16 @@ function suggestMapping(columnName) {
     owner: 'assignees',
     owners: 'assignees',
     responsible: 'assignees',
+    // Depends on
+    depends_on: 'depends_on',
+    depends: 'depends_on',
+    dependency: 'depends_on',
+    dependencies: 'depends_on',
+    predecessor: 'depends_on',
+    predecessors: 'depends_on',
+    blocked_by: 'depends_on',
+    after: 'depends_on',
+    follows: 'depends_on',
   };
 
   return mappings[normalized] || null;
@@ -259,23 +270,28 @@ const executeImport = async (req, res) => {
 
     const parentTaskColumn = Object.keys(mappings).find(col => mappings[col] === 'parent_task');
     const assigneesColumn = Object.keys(mappings).find(col => mappings[col] === 'assignees');
+    const dependsOnColumn = Object.keys(mappings).find(col => mappings[col] === 'depends_on');
 
-    // Separate parent tasks and subtasks
+    // Separate parent tasks and subtasks.
+    // Rows carry their original index so dependencies can refer to tasks by row
+    // number as well as by title — the two passes below reorder them.
     const parentRows = [];
     const subtaskRows = [];
 
-    for (const row of rows) {
+    rows.forEach((row, index) => {
       const parentValue = parentTaskColumn ? (row[parentTaskColumn] || '').trim() : '';
       if (parentValue) {
-        subtaskRows.push(row);
+        subtaskRows.push({ row, index });
       } else {
-        parentRows.push(row);
+        parentRows.push({ row, index });
       }
-    }
+    });
 
     const createdTaskMap = {}; // title -> task id (first occurrence wins)
+    const rowTaskIds = new Array(rows.length).fill(null); // original row index -> task id
     let created = 0;
     let failed = 0;
+    let dependenciesCreated = 0;
     const errors = [];
 
     // Pre-compute reverse mapping: systemField -> column name
@@ -373,10 +389,11 @@ const executeImport = async (req, res) => {
     }
 
     // Pass 1: Create parent tasks (no parent_task value)
-    for (const row of parentRows) {
+    for (const { row, index } of parentRows) {
       try {
         const result = await createTask(row, null, 0);
         if (result) {
+          rowTaskIds[index] = result.id;
           if (createdTaskMap[result.title]) {
             // Duplicate title — warn but still create (first one is used for subtask linkage)
             errors.push({ title: result.title, error: `Duplicate parent title "${result.title}" — subtasks will link to the first occurrence` });
@@ -393,7 +410,7 @@ const executeImport = async (req, res) => {
     }
 
     // Pass 2: Create subtasks (with parent_task value)
-    for (const row of subtaskRows) {
+    for (const { row, index } of subtaskRows) {
       try {
         const parentTitle = (row[parentTaskColumn] || '').trim();
         let parentTaskId = createdTaskMap[parentTitle] || null;
@@ -418,6 +435,7 @@ const executeImport = async (req, res) => {
 
         const result = await createTask(row, parentTaskId, depthLevel);
         if (result) {
+          rowTaskIds[index] = result.id;
           createdTaskMap[result.title] = result.id;
           created++;
         }
@@ -428,12 +446,90 @@ const executeImport = async (req, res) => {
       }
     }
 
+    // Pass 3: Create dependencies.
+    // Runs last so every task in the file exists and can be referenced in
+    // either direction. A cell may hold several references separated by ";".
+    // Each reference is either a 1-based row number in this file, or a task
+    // title (matched first against this import, then against the project).
+    if (dependsOnColumn) {
+      for (let index = 0; index < rows.length; index++) {
+        const row = rows[index];
+        const taskId = rowTaskIds[index];
+        if (!taskId) continue; // the row failed to create
+
+        const rawValue = (row[dependsOnColumn] || '').toString().trim();
+        if (!rawValue) continue;
+
+        const title = getMappedValue(row, 'title') || `Row ${index + 1}`;
+        const references = rawValue.split(/[;,]/).map(r => r.trim()).filter(Boolean);
+
+        for (const reference of references) {
+          try {
+            let dependsOnId = null;
+
+            if (/^\d+$/.test(reference)) {
+              const referencedIndex = parseInt(reference, 10) - 1;
+              if (referencedIndex < 0 || referencedIndex >= rows.length) {
+                errors.push({ title, error: `Dependency row number out of range: "${reference}"` });
+                continue;
+              }
+              dependsOnId = rowTaskIds[referencedIndex];
+            } else {
+              dependsOnId = createdTaskMap[reference] || null;
+              if (!dependsOnId) {
+                const existing = await client.query(
+                  'SELECT id FROM tasks WHERE project_id = $1 AND title = $2 LIMIT 1',
+                  [projectId, reference]
+                );
+                if (existing.rows.length > 0) {
+                  dependsOnId = existing.rows[0].id;
+                }
+              }
+            }
+
+            if (!dependsOnId) {
+              errors.push({ title, error: `Dependency not found: "${reference}"` });
+              continue;
+            }
+
+            if (dependsOnId === taskId) {
+              errors.push({ title, error: 'A task cannot depend on itself' });
+              continue;
+            }
+
+            const circularCheck = await client.query(
+              'SELECT check_circular_dependency($1, $2) as has_cycle',
+              [taskId, dependsOnId]
+            );
+            if (circularCheck.rows[0].has_cycle) {
+              errors.push({ title, error: `Dependency on "${reference}" would create a circular dependency` });
+              continue;
+            }
+
+            const inserted = await client.query(
+              `INSERT INTO task_dependencies (dependent_task_id, depends_on_task_id, dependency_type, lag_days, created_by)
+               VALUES ($1, $2, 'finish_to_start', 0, $3)
+               ON CONFLICT (dependent_task_id, depends_on_task_id) DO NOTHING
+               RETURNING id`,
+              [taskId, dependsOnId, userId]
+            );
+            if (inserted.rows.length > 0) {
+              dependenciesCreated++;
+            }
+          } catch (error) {
+            errors.push({ title, error: `Dependency "${reference}" failed: ${error.message}` });
+          }
+        }
+      }
+    }
+
     await client.query('COMMIT');
 
     res.json({
       success: true,
       created,
       failed,
+      dependenciesCreated,
       errors,
     });
   } catch (error) {
