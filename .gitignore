@@ -44,3 +44,6 @@ screenshot-*.png
 
 # secrets doc — never commit (values live in Vercel env)
 VERCEL_ENV_VARS.md
+
+# local backups taken before edits — may contain credentials
+_backup-*/
