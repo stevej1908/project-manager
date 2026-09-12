@@ -1,0 +1,65 @@
+name: Server tests
+
+on:
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'server/**'
+      - 'database/migrations/**'
+      - '.github/workflows/server-tests.yml'
+  push:
+    branches: [master, main]
+    paths:
+      - 'server/**'
+      - 'database/migrations/**'
+      - '.github/workflows/server-tests.yml'
+  workflow_dispatch:
+
+jobs:
+  server-tests:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: project_manager_test
+        ports:
+          - 5432:5432
+        # Wait until Postgres is accepting connections before the job starts.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Local, disposable target — the test helper (server/tests/helpers/testDb.js)
+      # refuses anything that isn't local + named test/dev, so it can never reach
+      # the Neon database referenced in server/.env.
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/project_manager_test
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install server dependencies
+        run: npm ci
+        working-directory: ./server
+
+      - name: Apply base schema to the test database
+        # 000 already includes tasks.parent_task_id + depth_level, which is all
+        # the hierarchy suite needs.
+        run: psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/000_initial_schema.sql
+
+      - name: Run server test suite
+        run: npx jest --runInBand
+        working-directory: ./server

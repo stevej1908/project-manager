@@ -20,6 +20,20 @@ const { Pool } = require('pg');
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '']);
 const DISPOSABLE = /(^|[^a-z])(test|dev)/i;
 
+/**
+ * True for loopback and RFC1918 private addresses. A managed cloud database
+ * (Neon, RDS, …) presents a public address and is never on these ranges, so
+ * this is safe to accept — and it lets the runtime check pass when the server
+ * is a CI Postgres *service container*, which is reached on localhost but
+ * reports a private container IP (e.g. 172.17.x) from inet_server_addr().
+ */
+function isLocalOrPrivateAddr(addr) {
+  if (LOCAL_HOSTS.has(addr)) return true;
+  return /^10\./.test(addr)
+    || /^192\.168\./.test(addr)
+    || /^172\.(1[6-9]|2\d|3[01])\./.test(addr);
+}
+
 const SETUP_HINT = [
   'Set TEST_DATABASE_URL to a LOCAL, disposable database, e.g.',
   '  postgres://postgres:<password>@localhost:5432/project_manager_test',
@@ -88,8 +102,8 @@ async function assertConnectedDatabaseIsSafe(pool) {
   if (!DISPOSABLE.test(db)) {
     throw new Error(`Connected to database "${db}", which is not recognisably disposable. Aborting.`);
   }
-  if (!LOCAL_HOSTS.has(addr)) {
-    throw new Error(`Connected to server at "${addr}", which is not local. Aborting.`);
+  if (!isLocalOrPrivateAddr(addr)) {
+    throw new Error(`Connected to server at "${addr}", which is a public host. Aborting.`);
   }
   return { db, addr };
 }
