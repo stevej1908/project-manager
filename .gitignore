@@ -34,8 +34,10 @@ auth-token.txt
 test-*.js
 test-*.png
 *.test.js
-server/tests/
 TESTING.md
+# ...but the committed server test suite is tracked (overrides *.test.js above).
+!server/tests/
+!server/tests/**
 api/
 save-auth-session.js
 find-auth-data.html
