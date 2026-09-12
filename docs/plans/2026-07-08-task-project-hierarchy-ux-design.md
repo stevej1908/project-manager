@@ -142,9 +142,28 @@ console warnings.
 `.gitignore` un-ignores `src/**/__tests__/**` (as it already does `server/tests/`) so
 these are tracked; root-level `*.test.js` scratch stays ignored.
 
+### Usability tier — e2e flow (added 2026-09-11)
+
+`tests/e2e/flow/hierarchy.spec.js` — a Playwright flow driving the **real frontend and
+backend against a test database** in Chromium, guarded in CI by
+`.github/workflows/e2e-tests.yml` (a `postgres:16` service; Playwright starts both
+servers). This closes the usability gap: it exercises the actual rendered app, not a
+mocked context.
+
+The journey: sign in (programmatic — a seeded user + a minted JWT injected into
+`localStorage`, no interactive OAuth) → create a project → add a task **with a status**
+(item 5) → add a sub-task from a list row (item 2) → open the sub-task's details,
+confirm the re-parent picker + promote affordance, and **promote it to top level**
+(item 3), verifying it becomes a top-level sibling → create a **sub-project** from the
+header button (item 4). Run locally with `npm run test:e2e:flow`; see
+`tests/e2e/flow/README.md`.
+
+Notes for whoever touches this next: auth is `tests/e2e/flow/hierarchy.setup.js`
+(seed + mint, guarded to a local/disposable DB); on Windows the Playwright readiness
+probes must use `127.0.0.1` (Node resolves `localhost` to `::1` first) and the CRA dev
+server must not be given `HOST` (trips a CRA 5 `allowedHosts` bug).
+
 ### Still not verified
 
-- **Usability tier not run.** These are component tests with a mocked API/context; no
-  end-to-end run drives the real app against a live backend.
 - **Deployment unknown.** Whether the prod deploy in the Testing section above ever
   happened is not determinable from the repository.

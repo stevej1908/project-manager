@@ -1,0 +1,83 @@
+name: E2E tests
+
+on:
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'src/**'
+      - 'server/**'
+      - 'database/migrations/**'
+      - 'tests/e2e/flow/**'
+      - 'playwright.config.e2e.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/e2e-tests.yml'
+  push:
+    branches: [master, main]
+    paths:
+      - 'src/**'
+      - 'server/**'
+      - 'database/migrations/**'
+      - 'tests/e2e/flow/**'
+      - 'playwright.config.e2e.js'
+      - '.github/workflows/e2e-tests.yml'
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: project_manager_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      CI: true
+      # Local, disposable target — the e2e helper refuses anything else and the
+      # backend uses the DB_* the Playwright config derives from this (ssl:false).
+      E2E_DATABASE_URL: postgres://postgres:postgres@localhost:5432/project_manager_test
+      # Signing secret shared by the token minter (setup) and the backend.
+      JWT_SECRET: e2e-ci-secret
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: ./server
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run e2e flow
+        # Playwright starts the backend (:5000) and CRA dev server (:3000),
+        # applies migrations + seeds the test user, then drives the flow.
+        run: npx playwright test --config=playwright.config.e2e.js
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
