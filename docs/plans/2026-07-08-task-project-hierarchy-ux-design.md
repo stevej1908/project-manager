@@ -55,7 +55,9 @@ nothing here is "verified" in the sense of a test that would fail if it broke.
 | 5 | Present | `src/components/CreateTaskModal.js:159` |
 
 Item 1 was subsequently promoted from **Present** to **VERIFIED** — see "Item 1 regression
-suite" below.
+suite" below. Items 2–5 were likewise promoted to **VERIFIED** — see "Items 2–5 frontend
+suite" below. (The open items on 3 and 4 — the plain `<select>` and the invariant-not-a-check
+depth cap — still stand; the tests pin current behaviour, they don't resolve those notes.)
 
 Item 1 carries every guard the design named — key-presence semantics (`null` promotes,
 absent leaves unchanged), self-parent rejection, same-project check, recursive-CTE cycle
@@ -110,10 +112,39 @@ which already includes `tasks.parent_task_id` and `depth_level`.
 > `TESTING.md`, so this suite is untracked as written. It must be un-ignored (or the
 > files force-added / renamed) before it can land and run in CI. Decision pending.
 
+### Items 2–5 frontend suite (added 2026-09-11)
+
+React Testing Library component tests (jsdom, no backend), run by CRA's jest and
+guarded in CI by `.github/workflows/frontend-tests.yml`. Verdict for items 2–5:
+**VERIFIED** — each was shown to fail when its production code is broken, then pass
+when restored.
+
+- **Item 2** — `src/components/__tests__/TaskListView.subtasks.test.js`: the "Add
+  sub-task" control appears on nested rows (any depth), and opening it on a nested row
+  uses that row as the parent. Also surfaced in `TaskDetailsModal.test.js`.
+- **Item 3** — `src/components/__tests__/TaskDetailsModal.test.js`: promote calls
+  `update(id, {parent_task_id: null})`; the re-parent picker excludes the task itself
+  and its descendants; choosing a target and Move calls `update(id, {parent_task_id})`.
+- **Item 4** — `src/pages/__tests__/ProjectPage.test.js`: the "Add Sub-Project" button
+  shows below the depth cap, opens `CreateProjectModal` parented to the project, and is
+  hidden at depth 2 (the 3-level cap).
+- **Item 5** — `src/components/__tests__/CreateTaskModal.test.js`: the Status selector
+  exists with all four statuses, defaults to `todo`, honours `initialStatus`, and the
+  chosen status reaches the create payload.
+
+Discrimination: each item's guard/affordance was mutated in the component (gate the
+add-button to depth 0; drop the descendant filter; widen the depth cap; drop `status`
+from the payload) and the targeting test failed; components were then restored from git.
+The pre-existing `TaskListView.test.js` (written against a component API that never
+existed — 3/3 failing) was repaired in passing. Full src suite: 16 pass, no act or
+console warnings.
+
+`.gitignore` un-ignores `src/**/__tests__/**` (as it already does `server/tests/`) so
+these are tracked; root-level `*.test.js` scratch stays ignored.
+
 ### Still not verified
 
-- **Items 2–5 have no automated coverage.** These are frontend; the only committed e2e
-  specs (`auth.setup.js`, `view-switching.spec.js`) don't touch hierarchy.
-- **Usability tier not run** for any item (no UI was driven).
+- **Usability tier not run.** These are component tests with a mocked API/context; no
+  end-to-end run drives the real app against a live backend.
 - **Deployment unknown.** Whether the prod deploy in the Testing section above ever
   happened is not determinable from the repository.

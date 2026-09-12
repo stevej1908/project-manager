@@ -35,9 +35,11 @@ test-*.js
 test-*.png
 *.test.js
 TESTING.md
-# ...but the committed server test suite is tracked (overrides *.test.js above).
+# ...but committed test suites are tracked (override *.test.js above).
 !server/tests/
 !server/tests/**
+!src/**/__tests__/
+!src/**/__tests__/**
 api/
 save-auth-session.js
 find-auth-data.html
