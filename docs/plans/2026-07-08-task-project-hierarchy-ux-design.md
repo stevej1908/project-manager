@@ -1,7 +1,7 @@
 # Task & Project Hierarchy UX
 
 **Date:** 2026-07-08
-**Status:** Design complete — pending implementation
+**Status:** Implemented in `891af93` — all 5 items present in code; behaviour untested (see Verification)
 
 ## Problem
 
@@ -39,3 +39,81 @@ Dev PM stack: local PM API on `:5001` against `project_manager_dev`, plus the PM
 ## Out of scope
 
 Drawing/dragging dependencies on the Gantt (separate, larger feature). Dependencies remain available via the existing dialog.
+
+## Verification (2026-09-11)
+
+Code review of `891af93` against the five scoped changes. Tier: **presence only** — no
+item below was executed. Verdicts use "present" = code exists and reads correct;
+nothing here is "verified" in the sense of a test that would fail if it broke.
+
+| # | Verdict | Evidence |
+|---|---------|----------|
+| 1 | Present | `server/controllers/taskController.js:347-478` |
+| 2 | Present | `src/components/TaskListView.js:158`, `src/components/TaskDetailsModal.js:913` |
+| 3 | Present, with deviation | `src/components/TaskDetailsModal.js:940-988` |
+| 4 | Present, with caveat | `src/pages/ProjectPage.js:178`, `src/pages/DashboardPage.js:249`, `src/components/ProjectOverview.js:93` |
+| 5 | Present | `src/components/CreateTaskModal.js:159` |
+
+Item 1 was subsequently promoted from **Present** to **VERIFIED** — see "Item 1 regression
+suite" below.
+
+Item 1 carries every guard the design named — key-presence semantics (`null` promotes,
+absent leaves unchanged), self-parent rejection, same-project check, recursive-CTE cycle
+guard against the task's own subtree, recursive subtree depth recompute — plus an
+unspecified extra: post-commit derived-status refresh on the old and new parents,
+skipping now-childless ones.
+
+Item 5 is full parity: create and edit both expose Title, Description, Start Date,
+End Date, Priority, Status.
+
+### Open items
+
+- **Item 3 deviates.** The design specifies a *searchable* picker; a plain `<select>`
+  shipped. Options are correctly scoped (same project, excludes self + descendants) but
+  the control will not scale to a project with many tasks.
+- **Item 4's depth cap is an invariant, not a check.** Only `ProjectPage`'s header
+  button tests `depth < 2`. The two `DashboardPage` buttons and the two in
+  `ProjectOverview` are ungated; they are unreachable at the cap today only because
+  Dashboard offers them solely on top-level projects, and `ProjectOverview` renders only
+  when `hasChildren` — which a depth-2 project can never be. If either condition
+  changes, the button appears and the API rejects the create.
+
+### Item 1 regression suite (added 2026-09-11)
+
+`server/tests/taskHierarchy.test.js` (+ `server/tests/helpers/`) — 9 tests driving the
+real `updateTask` controller against a local Postgres. Verdict for item 1: **VERIFIED**
+— each test was shown to fail when its guard is broken, then pass when restored.
+
+Covered: re-parent sets depth; promote-to-top on `null`; absent key leaves parent
+unchanged; whole-subtree depth recompute; same-project guard; own-descendant cycle
+guard; self-parent guard; parent-not-found 404; derived-status refresh on old + new
+parent.
+
+Discrimination proof: each guard was individually mutated in the controller and the
+targeting test failed as expected; the controller was then restored byte-for-byte from
+git. (Bypassing the cycle guard makes the depth-recompute CTE loop on the resulting
+cyclic data — the suite's `statement_timeout` turns that into a fast failure rather than
+a hang, which is itself evidence the guard is load-bearing.)
+
+**How to run:**
+```
+cd server && npm install
+# TEST_DATABASE_URL must be a LOCAL, disposable db (name contains "test"/"dev");
+# the helper refuses anything else, so it can never touch the Neon url in server/.env.
+TEST_DATABASE_URL=postgres://<user>:<pw>@localhost:5432/project_manager_test \
+  npx jest tests/taskHierarchy.test.js --runInBand
+```
+The test db needs only the base schema (`database/migrations/000_initial_schema.sql`),
+which already includes `tasks.parent_task_id` and `depth_level`.
+
+> **Blocker to committing:** `.gitignore` ignores `*.test.js`, `server/tests/`, and
+> `TESTING.md`, so this suite is untracked as written. It must be un-ignored (or the
+> files force-added / renamed) before it can land and run in CI. Decision pending.
+
+### Still not verified
+
+- **Items 2–5 have no automated coverage.** These are frontend; the only committed e2e
+  specs (`auth.setup.js`, `view-switching.spec.js`) don't touch hierarchy.
+- **Usability tier not run** for any item (no UI was driven).
+- **Deployment unknown.** Whether the prod deploy in the Testing section above ever
+  happened is not determinable from the repository.
