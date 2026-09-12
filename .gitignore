@@ -28,6 +28,11 @@ public/*.ico
 .env*.local
 auth-state.json
 test-screenshots/
+
+# Playwright
+/playwright-report/
+/test-results/
+tests/e2e/**/.auth/
 auth-token.txt
 
 # Test files
