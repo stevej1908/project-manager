@@ -1,81 +1,60 @@
 /**
- * Unit Tests for TaskListView Component
+ * Unit tests for the TaskListView component.
  *
- * Tests the task list board view component
- * Run with: npm test
+ * TaskListView reads its tasks from ProjectContext (not from an API call) and
+ * has no loading state of its own, so the context must supply `tasks`,
+ * `updateTask` and `loadProject`.
  */
-
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { render, screen, act } from '@testing-library/react';
 import TaskListView from '../TaskListView';
 import { ProjectContext } from '../../context/ProjectContext';
 
-// Mock the API
+// TaskListView only touches dependenciesAPI.getAll (in an effect).
 jest.mock('../../services/api', () => ({
-  tasksAPI: {
-    getAll: jest.fn(),
-    create: jest.fn(),
-    update: jest.fn(),
-    delete: jest.fn()
-  },
-  dependenciesAPI: {
-    getAll: jest.fn()
-  }
+  dependenciesAPI: { getAll: jest.fn() },
 }));
+const { dependenciesAPI } = require('../../services/api');
+// Modals are opened on interaction; not exercised here.
+jest.mock('../CreateTaskModal', () => () => null);
+jest.mock('../TaskDetailsModal', () => () => null);
 
-// Mock ProjectContext
-const mockProjectContext = {
-  currentProject: {
-    id: 1,
-    name: 'Test Project',
-    description: 'Test description'
-  },
-  refreshProject: jest.fn()
-};
+async function renderView(tasks = []) {
+  render(
+    <ProjectContext.Provider
+      value={{ tasks, updateTask: jest.fn(), loadProject: jest.fn() }}
+    >
+      <TaskListView projectId={1} />
+    </ProjectContext.Provider>
+  );
+  // Flush the dependency-loading effect's state update inside act().
+  await act(async () => {});
+}
 
 describe('TaskListView Component', () => {
-  beforeEach(() => {
-    // Reset mocks before each test
-    jest.clearAllMocks();
-  });
+  // CRA's jest sets resetMocks:true, wiping factory implementations before each
+  // test, so (re)establish the effect's dependency call here.
+  beforeEach(() => dependenciesAPI.getAll.mockResolvedValue({ dependencies: [] }));
 
-  test('renders status columns', () => {
-    render(
-      <ProjectContext.Provider value={mockProjectContext}>
-        <TaskListView projectId={1} />
-      </ProjectContext.Provider>
-    );
-
+  test('renders the four status columns', async () => {
+    await renderView();
     expect(screen.getByText('To Do')).toBeInTheDocument();
     expect(screen.getByText('In Progress')).toBeInTheDocument();
     expect(screen.getByText('Review')).toBeInTheDocument();
     expect(screen.getByText('Done')).toBeInTheDocument();
   });
 
-  test('displays loading state initially', () => {
-    render(
-      <ProjectContext.Provider value={mockProjectContext}>
-        <TaskListView projectId={1} />
-      </ProjectContext.Provider>
-    );
-
-    // Check for loading spinner or skeleton
-    expect(screen.getByTestId('loading-spinner') || screen.getByText(/loading/i)).toBeInTheDocument();
+  test('shows the empty state when there are no tasks', async () => {
+    await renderView([]);
+    expect(screen.getByText(/no tasks yet/i)).toBeInTheDocument();
   });
 
-  // Add more tests as needed
-  test('renders empty state when no tasks', async () => {
-    const { tasksAPI } = require('../../services/api');
-    tasksAPI.getAll.mockResolvedValue({ tasks: [] });
-
-    render(
-      <ProjectContext.Provider value={mockProjectContext}>
-        <TaskListView projectId={1} />
-      </ProjectContext.Provider>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText(/no tasks yet/i) || screen.getByText(/get started/i)).toBeInTheDocument();
-    });
+  test('renders a row for each top-level task', async () => {
+    await renderView([
+      { id: 1, title: 'First task', parent_task_id: null, position: 0, status: 'todo', assignees: [] },
+      { id: 2, title: 'Second task', parent_task_id: null, position: 1, status: 'todo', assignees: [] },
+    ]);
+    expect(screen.getByText('First task')).toBeInTheDocument();
+    expect(screen.getByText('Second task')).toBeInTheDocument();
+    expect(screen.queryByText(/no tasks yet/i)).not.toBeInTheDocument();
   });
 });
