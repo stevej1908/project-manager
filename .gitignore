@@ -56,3 +56,11 @@ VERCEL_ENV_VARS.md
 
 # local backups taken before edits — may contain credentials
 _backup-*/
+
+# Local-only files
+.claude/settings.local.json
+tests/e2e/.auth/
+_to_delete/
+playwright-report/
+test-results/
+_t1.js
