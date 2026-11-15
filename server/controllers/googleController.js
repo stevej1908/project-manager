@@ -1,5 +1,6 @@
 const { google } = require('googleapis');
 const { pool } = require('../config/database');
+const privacy = require('../lib/privacy');
 
 // Helper function to get OAuth2 client with user's tokens
 async function getUserOAuth2Client(userId) {
@@ -296,9 +297,7 @@ const attachDriveFile = async (req, res) => {
     // Check if user has access to the task
     const taskCheck = await pool.query(
       `SELECT t.id FROM tasks t
-       INNER JOIN projects p ON t.project_id = p.id
-       LEFT JOIN project_members pm ON p.id = pm.project_id
-       WHERE t.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+       WHERE t.id = $1 AND pm_task_visible(t.id, $2)`,
       [taskId, userId]
     );
 
@@ -460,9 +459,7 @@ const attachEmailToTask = async (req, res) => {
     // Check if user has access to the task
     const taskCheck = await pool.query(
       `SELECT t.id FROM tasks t
-       INNER JOIN projects p ON t.project_id = p.id
-       LEFT JOIN project_members pm ON p.id = pm.project_id
-       WHERE t.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+       WHERE t.id = $1 AND pm_task_visible(t.id, $2)`,
       [taskId, userId]
     );
 
@@ -566,9 +563,7 @@ const getTaskEmails = async (req, res) => {
     // Check if user has access to the task
     const taskCheck = await pool.query(
       `SELECT t.id FROM tasks t
-       INNER JOIN projects p ON t.project_id = p.id
-       LEFT JOIN project_members pm ON p.id = pm.project_id
-       WHERE t.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+       WHERE t.id = $1 AND pm_task_visible(t.id, $2)`,
       [taskId, userId]
     );
 
@@ -606,12 +601,10 @@ const deleteTaskEmail = async (req, res) => {
     // Check if user has access to the task
     const result = await pool.query(
       `DELETE FROM task_emails e
-       USING tasks t, projects p
-       LEFT JOIN project_members pm ON p.id = pm.project_id
+       USING tasks t
        WHERE e.id = $1
        AND e.task_id = t.id
-       AND t.project_id = p.id
-       AND (p.owner_id = $2 OR pm.user_id = $2)
+       AND pm_task_visible(t.id, $2)
        RETURNING e.id`,
       [emailId, userId]
     );

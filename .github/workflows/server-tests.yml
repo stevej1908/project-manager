@@ -60,6 +60,12 @@ jobs:
         # the hierarchy suite needs.
         run: psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/000_initial_schema.sql
 
+      - name: Apply sub-project and privacy migrations (task 042 privacy tests)
+        run: |
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/003_add_project_invitations.sql
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/004_add_project_hierarchy.sql
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/006_private_projects_and_tasks.sql
+
       - name: Run server test suite
         run: npx jest --runInBand
         working-directory: ./server

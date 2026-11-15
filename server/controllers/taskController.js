@@ -1,4 +1,5 @@
 const { pool } = require('../config/database');
+const privacy = require('../lib/privacy');
 
 // Get all tasks for a project
 const getTasks = async (req, res) => {
@@ -10,16 +11,10 @@ const getTasks = async (req, res) => {
       return res.status(400).json({ error: 'Project ID is required' });
     }
 
-    // Check if user has access to the project
-    const accessCheck = await pool.query(
-      `SELECT p.id FROM projects p
-       LEFT JOIN project_members pm ON p.id = pm.project_id
-       WHERE p.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
-      [projectId, userId]
-    );
-
-    if (accessCheck.rows.length === 0) {
-      return res.status(403).json({ error: 'Access denied to this project' });
+    // Task 042: a project this user may not see answers exactly like one that does not exist.
+    const access = await privacy.projectAccess(projectId, userId);
+    if (!access.visible) {
+      return res.status(404).json({ error: privacy.NOT_FOUND.project });
     }
 
     // Get tasks with assignees and sub-task info
@@ -40,16 +35,16 @@ const getTasks = async (req, res) => {
         ) as assignees,
         (SELECT COUNT(*) FROM task_attachments WHERE task_id = t.id) as attachment_count,
         (SELECT COUNT(*) FROM task_comments WHERE task_id = t.id) as comment_count,
-        (SELECT COUNT(*) FROM tasks WHERE parent_task_id = t.id) as subtask_count,
+        (SELECT COUNT(*) FROM tasks st WHERE st.parent_task_id = t.id AND pm_task_visible(st.id, $2)) as subtask_count,
         pt.title as parent_task_title
        FROM tasks t
        INNER JOIN users u ON t.created_by = u.id
        LEFT JOIN task_assignees ta ON t.id = ta.task_id
        LEFT JOIN tasks pt ON t.parent_task_id = pt.id
-       WHERE t.project_id = $1
+       WHERE t.project_id = $1 AND pm_task_visible(t.id, $2)
        GROUP BY t.id, u.name, pt.title
        ORDER BY t.depth_level ASC, t.position ASC, t.created_at DESC`,
-      [projectId]
+      [projectId, userId]
     );
 
     res.json({ tasks: result.rows });
@@ -73,14 +68,12 @@ const getTaskById = async (req, res) => {
       `SELECT t.*, u.name as created_by_name, u.email as created_by_email
        FROM tasks t
        INNER JOIN users u ON t.created_by = u.id
-       INNER JOIN projects p ON t.project_id = p.id
-       LEFT JOIN project_members pm ON p.id = pm.project_id
-       WHERE t.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+       WHERE t.id = $1 AND pm_task_visible(t.id, $2)`,
       [id, userId]
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Task not found or access denied' });
+      return res.status(404).json({ error: privacy.NOT_FOUND.task });
     }
 
     const task = result.rows[0];
@@ -146,23 +139,30 @@ const createTask = async (req, res) => {
       });
     }
 
-    // Check if user has access to the project
-    const accessCheck = await client.query(
-      `SELECT p.owner_id, pm.role FROM projects p
-       LEFT JOIN project_members pm ON p.id = pm.project_id AND pm.user_id = $2
-       WHERE p.id = $1`,
-      [project_id, userId]
-    );
-
-    if (accessCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Project not found' });
+    // Task 042: only on a project this user can see (before, anyone signed in could add tasks
+    // to any project), and not as a viewer.
+    const access = await privacy.projectAccess(project_id, userId, client);
+    if (!access.visible) {
+      return res.status(404).json({ error: privacy.NOT_FOUND.project });
     }
-
-    const { owner_id, role } = accessCheck.rows[0];
-    if (owner_id !== userId && role === 'viewer') {
+    if (!privacy.canEdit(access.role)) {
       return res.status(403).json({
         error: 'Viewers cannot create tasks'
       });
+    }
+    // Business or Private, as chosen on save; left out = Private inside a Private project or
+    // under a Private task, else Business.
+    if (req.body.privacy !== undefined && req.body.privacy !== null && !privacy.parseLevel(req.body.privacy)) {
+      return res.status(400).json({ error: 'privacy must be business or private' });
+    }
+    if (parent_task_id) {
+      const parentAccess = await privacy.taskAccess(parent_task_id, userId, client);
+      if (!parentAccess.visible) return res.status(404).json({ error: 'Parent task not found' });
+    }
+    const level = privacy.parseLevel(req.body.privacy)
+      || ((await privacy.projectChainPrivate(project_id, client)) || (await privacy.taskChainPrivate(parent_task_id, client)) ? 'private' : 'business');
+    if (level === 'private' && await privacy.otherUserAssignees(userId, assignees, client)) {
+      return res.status(400).json({ error: privacy.PRIVATE_ASSIGN });
     }
 
     await client.query('BEGIN');
@@ -205,9 +205,9 @@ const createTask = async (req, res) => {
       `INSERT INTO tasks (
         project_id, title, description, start_date, end_date, status, priority,
         position, gmail_message_id, gmail_thread_id, created_by,
-        parent_task_id, depth_level
+        parent_task_id, depth_level, privacy
       )
-       VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8, $9, $10, $11, $12, $13)
+       VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING *`,
       [
         project_id,
@@ -222,7 +222,8 @@ const createTask = async (req, res) => {
         gmail_thread_id,
         userId,
         parent_task_id,
-        depth_level
+        depth_level,
+        level
       ]
     );
 
@@ -266,7 +267,7 @@ const createTask = async (req, res) => {
         ) as assignees,
         0 as attachment_count,
         0 as comment_count,
-        (SELECT COUNT(*) FROM tasks WHERE parent_task_id = t.id) as subtask_count,
+        (SELECT COUNT(*) FROM tasks st WHERE st.parent_task_id = t.id AND pm_task_visible(st.id, $2)) as subtask_count,
         pt.title as parent_task_title
        FROM tasks t
        INNER JOIN users u ON t.created_by = u.id
@@ -274,7 +275,7 @@ const createTask = async (req, res) => {
        LEFT JOIN tasks pt ON t.parent_task_id = pt.id
        WHERE t.id = $1
        GROUP BY t.id, u.name, pt.title`,
-      [task.id]
+      [task.id, userId]
     );
 
     res.status(201).json({ task: taskWithDetails.rows[0] });
@@ -291,11 +292,17 @@ const createTask = async (req, res) => {
 };
 
 // Helper function to calculate parent task status based on sub-tasks
+// Task 042: a Business parent's status follows only its Business sub-tasks, so a Private
+// sub-task never shows through to others (unless every sub-task is Private).
 const calculateParentStatus = async (parentTaskId) => {
-  const subTasksResult = await pool.query(
-    'SELECT status FROM tasks WHERE parent_task_id = $1',
+  let subTasksResult = await pool.query(
+    `SELECT c.status FROM tasks c JOIN tasks p ON p.id = c.parent_task_id
+      WHERE c.parent_task_id = $1 AND (p.privacy <> 'business' OR c.privacy = 'business')`,
     [parentTaskId]
   );
+  if (subTasksResult.rows.length === 0) {
+    subTasksResult = await pool.query('SELECT status FROM tasks WHERE parent_task_id = $1', [parentTaskId]);
+  }
 
   if (subTasksResult.rows.length === 0) {
     return 'todo'; // Default if no sub-tasks
@@ -347,24 +354,17 @@ const updateTask = async (req, res) => {
     const reparent = Object.prototype.hasOwnProperty.call(req.body, 'parent_task_id');
     const newParentId = reparent ? (req.body.parent_task_id || null) : undefined;
 
-    // Check if user has edit access
-    const accessCheck = await client.query(
-      `SELECT t.parent_task_id, t.project_id, p.owner_id, pm.role,
-        (SELECT COUNT(*) FROM tasks WHERE parent_task_id = t.id) as subtask_count
-       FROM tasks t
-       INNER JOIN projects p ON t.project_id = p.id
-       LEFT JOIN project_members pm ON p.id = pm.project_id AND pm.user_id = $2
-       WHERE t.id = $1`,
-      [id, userId]
-    );
-
-    if (accessCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Task not found' });
+    // Task 042: only a task this user can see (before, anyone signed in could edit any task).
+    const access = await privacy.taskAccess(id, userId, client);
+    if (!access.visible) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: privacy.NOT_FOUND.task });
     }
+    const { parent_task_id, project_id } = access.row;
+    const subtask_count = access.row.subtask_count_all;
 
-    const { parent_task_id, project_id, owner_id, role, subtask_count } = accessCheck.rows[0];
-
-    if (owner_id !== userId && role === 'viewer') {
+    if (!privacy.canEdit(access.role)) {
+      await client.query('ROLLBACK');
       return res.status(403).json({
         error: 'Viewers cannot edit tasks'
       });
@@ -424,8 +424,8 @@ const updateTask = async (req, res) => {
           return res.status(400).json({ error: 'A task cannot be its own parent' });
         }
         const pc = await client.query(
-          'SELECT depth_level, project_id FROM tasks WHERE id = $1',
-          [newParentId]
+          'SELECT depth_level, project_id FROM tasks WHERE id = $1 AND pm_task_visible(id, $2)',
+          [newParentId, userId]
         );
         if (pc.rows.length === 0) {
           await client.query('ROLLBACK');
@@ -515,21 +515,12 @@ const deleteTask = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    // Check if user has edit access
-    const accessCheck = await pool.query(
-      `SELECT p.owner_id, pm.role FROM tasks t
-       INNER JOIN projects p ON t.project_id = p.id
-       LEFT JOIN project_members pm ON p.id = pm.project_id AND pm.user_id = $2
-       WHERE t.id = $1`,
-      [id, userId]
-    );
-
-    if (accessCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Task not found' });
+    // Task 042: only a task this user can see (before, anyone signed in could delete any task).
+    const access = await privacy.taskAccess(id, userId);
+    if (!access.visible) {
+      return res.status(404).json({ error: privacy.NOT_FOUND.task });
     }
-
-    const { owner_id, role } = accessCheck.rows[0];
-    if (owner_id !== userId && role === 'viewer') {
+    if (!privacy.canEdit(access.role)) {
       return res.status(403).json({
         error: 'Viewers cannot delete tasks'
       });
@@ -560,15 +551,12 @@ const addComment = async (req, res) => {
 
     // Check if user has access to the task
     const accessCheck = await pool.query(
-      `SELECT t.id FROM tasks t
-       INNER JOIN projects p ON t.project_id = p.id
-       LEFT JOIN project_members pm ON p.id = pm.project_id
-       WHERE t.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+      `SELECT t.id FROM tasks t WHERE t.id = $1 AND pm_task_visible(t.id, $2)`,
       [id, userId]
     );
 
     if (accessCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Task not found or access denied' });
+      return res.status(404).json({ error: privacy.NOT_FOUND.task });
     }
 
     const result = await pool.query(
@@ -598,9 +586,7 @@ const deleteAttachment = async (req, res) => {
     const accessCheck = await pool.query(
       `SELECT ta.id FROM task_attachments ta
        INNER JOIN tasks t ON ta.task_id = t.id
-       INNER JOIN projects p ON t.project_id = p.id
-       LEFT JOIN project_members pm ON p.id = pm.project_id
-       WHERE ta.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+       WHERE ta.id = $1 AND pm_task_visible(t.id, $2) AND pm_project_role(t.project_id, $2) IN ('owner', 'editor')`,
       [attachmentId, userId]
     );
 
@@ -631,22 +617,16 @@ const addAssignee = async (req, res) => {
       return res.status(400).json({ error: 'Contact email is required' });
     }
 
-    // Check if user has access to the task
-    const accessCheck = await pool.query(
-      `SELECT t.id, p.owner_id, pm.role FROM tasks t
-       INNER JOIN projects p ON t.project_id = p.id
-       LEFT JOIN project_members pm ON p.id = pm.project_id
-       WHERE t.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
-      [id, userId]
-    );
-
-    if (accessCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Task not found or access denied' });
+    // Task 042: only a task this user can see; a Private task only to its owner.
+    const access = await privacy.taskAccess(id, userId);
+    if (!access.visible) {
+      return res.status(404).json({ error: privacy.NOT_FOUND.task });
     }
-
-    const { owner_id, role } = accessCheck.rows[0];
-    if (owner_id !== userId && role === 'viewer') {
+    if (!privacy.canEdit(access.role)) {
       return res.status(403).json({ error: 'Viewers cannot add assignees' });
+    }
+    if (access.row.privacy === 'private' && await privacy.otherUserAssignees(access.row.created_by, [{ contact_email }])) {
+      return res.status(400).json({ error: privacy.PRIVATE_ASSIGN });
     }
 
     // Check if this contact is already assigned
@@ -685,20 +665,18 @@ const removeAssignee = async (req, res) => {
 
     // Check if user has access to the task
     const accessCheck = await pool.query(
-      `SELECT t.id, p.owner_id, pm.role FROM tasks t
-       INNER JOIN projects p ON t.project_id = p.id
-       LEFT JOIN project_members pm ON p.id = pm.project_id
+      `SELECT t.id, pm_project_role(t.project_id, $3) AS role FROM tasks t
        INNER JOIN task_assignees ta ON ta.task_id = t.id
-       WHERE t.id = $1 AND ta.id = $2 AND (p.owner_id = $3 OR pm.user_id = $3)`,
+       WHERE t.id = $1 AND ta.id = $2 AND pm_task_visible(t.id, $3)`,
       [id, assigneeId, userId]
     );
 
     if (accessCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Assignee not found or access denied' });
+      return res.status(404).json({ error: 'Assignee not found' });
     }
 
-    const { owner_id, role } = accessCheck.rows[0];
-    if (owner_id !== userId && role === 'viewer') {
+    const { role } = accessCheck.rows[0];
+    if (!privacy.canEdit(role)) {
       return res.status(403).json({ error: 'Viewers cannot remove assignees' });
     }
 

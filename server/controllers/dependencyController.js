@@ -1,4 +1,5 @@
 const { pool } = require('../config/database');
+const privacy = require('../lib/privacy');
 
 // Get all dependencies for a project
 const getDependencies = async (req, res) => {
@@ -13,13 +14,12 @@ const getDependencies = async (req, res) => {
     // Check if user has access to the project
     const accessCheck = await pool.query(
       `SELECT p.id FROM projects p
-       LEFT JOIN project_members pm ON p.id = pm.project_id
-       WHERE p.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+       WHERE p.id = $1 AND pm_project_visible(p.id, $2)`,
       [projectId, userId]
     );
 
     if (accessCheck.rows.length === 0) {
-      return res.status(403).json({ error: 'Access denied to this project' });
+      return res.status(404).json({ error: privacy.NOT_FOUND.project });
     }
 
     // Get all dependencies for tasks in this project
@@ -28,9 +28,9 @@ const getDependencies = async (req, res) => {
        FROM task_dependencies td
        INNER JOIN tasks t1 ON td.dependent_task_id = t1.id
        INNER JOIN tasks t2 ON td.depends_on_task_id = t2.id
-       WHERE t1.project_id = $1
+       WHERE t1.project_id = $1 AND pm_task_visible(t1.id, $2) AND pm_task_visible(t2.id, $2)
        ORDER BY td.created_at DESC`,
-      [projectId]
+      [projectId, userId]
     );
 
     res.json({ dependencies: result.rows });
@@ -64,16 +64,17 @@ const createDependency = async (req, res) => {
 
     // Validate both tasks exist and user has access
     const tasksCheck = await pool.query(
-      `SELECT t.id, t.project_id, p.owner_id, pm.role
+      `SELECT t.id, t.project_id, pm_project_role(t.project_id, $3) AS role
        FROM tasks t
-       INNER JOIN projects p ON t.project_id = p.id
-       LEFT JOIN project_members pm ON p.id = pm.project_id AND pm.user_id = $3
-       WHERE t.id IN ($1, $2)`,
+       WHERE t.id IN ($1, $2) AND pm_task_visible(t.id, $3)`,
       [dependent_task_id, depends_on_task_id, userId]
     );
 
     if (tasksCheck.rows.length < 2) {
       return res.status(404).json({ error: 'One or both tasks not found' });
+    }
+    if (!tasksCheck.rows.every(r => privacy.canEdit(r.role))) {
+      return res.status(403).json({ error: 'Viewers cannot add dependencies' });
     }
 
     // Check if tasks are in different projects
@@ -167,9 +168,8 @@ const updateDependency = async (req, res) => {
     const accessCheck = await pool.query(
       `SELECT td.id FROM task_dependencies td
        INNER JOIN tasks t ON td.dependent_task_id = t.id
-       INNER JOIN projects p ON t.project_id = p.id
-       LEFT JOIN project_members pm ON p.id = pm.project_id
-       WHERE td.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+       INNER JOIN tasks t2 ON td.depends_on_task_id = t2.id
+       WHERE td.id = $1 AND pm_task_visible(t.id, $2) AND pm_task_visible(t2.id, $2)`,
       [id, userId]
     );
 
@@ -210,9 +210,8 @@ const deleteDependency = async (req, res) => {
     const accessCheck = await pool.query(
       `SELECT td.id FROM task_dependencies td
        INNER JOIN tasks t ON td.dependent_task_id = t.id
-       INNER JOIN projects p ON t.project_id = p.id
-       LEFT JOIN project_members pm ON p.id = pm.project_id
-       WHERE td.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+       INNER JOIN tasks t2 ON td.depends_on_task_id = t2.id
+       WHERE td.id = $1 AND pm_task_visible(t.id, $2) AND pm_task_visible(t2.id, $2)`,
       [id, userId]
     );
 
@@ -243,9 +242,7 @@ const getTaskDependencies = async (req, res) => {
     // Check if user has access to the task
     const accessCheck = await pool.query(
       `SELECT t.id FROM tasks t
-       INNER JOIN projects p ON t.project_id = p.id
-       LEFT JOIN project_members pm ON p.id = pm.project_id
-       WHERE t.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+       WHERE t.id = $1 AND pm_task_visible(t.id, $2)`,
       [taskId, userId]
     );
 
@@ -258,8 +255,8 @@ const getTaskDependencies = async (req, res) => {
       `SELECT td.*, t.title as task_title, t.status, t.end_date
        FROM task_dependencies td
        INNER JOIN tasks t ON td.depends_on_task_id = t.id
-       WHERE td.dependent_task_id = $1`,
-      [taskId]
+       WHERE td.dependent_task_id = $1 AND pm_task_visible(t.id, $2)`,
+      [taskId, userId]
     );
 
     // Get dependencies where other tasks depend on this one
@@ -267,8 +264,8 @@ const getTaskDependencies = async (req, res) => {
       `SELECT td.*, t.title as task_title, t.status, t.start_date
        FROM task_dependencies td
        INNER JOIN tasks t ON td.dependent_task_id = t.id
-       WHERE td.depends_on_task_id = $1`,
-      [taskId]
+       WHERE td.depends_on_task_id = $1 AND pm_task_visible(t.id, $2)`,
+      [taskId, userId]
     );
 
     res.json({
@@ -297,13 +294,12 @@ const getCrossProjectDependencies = async (req, res) => {
     // Check access to parent project
     const accessCheck = await pool.query(
       `SELECT p.id FROM projects p
-       LEFT JOIN project_members pm ON p.id = pm.project_id
-       WHERE p.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+       WHERE p.id = $1 AND pm_project_visible(p.id, $2)`,
       [parent_project_id, userId]
     );
 
     if (accessCheck.rows.length === 0) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.status(404).json({ error: privacy.NOT_FOUND.project });
     }
 
     // Get all cross-project dependencies where both tasks belong to children of the parent
@@ -321,8 +317,9 @@ const getCrossProjectDependencies = async (req, res) => {
        WHERE td.is_cross_project = true
          AND p1.parent_project_id = $1
          AND p2.parent_project_id = $1
+         AND pm_task_visible(t1.id, $2) AND pm_task_visible(t2.id, $2)
        ORDER BY td.created_at DESC`,
-      [parent_project_id]
+      [parent_project_id, userId]
     );
 
     res.json({ dependencies: result.rows });

@@ -1,4 +1,8 @@
 const { pool } = require('../config/database');
+const privacy = require('../lib/privacy');
+
+// Task 042: the viewer's id, checked to be a whole number, for the visibility functions.
+const uidOf = (u) => { const n = Number(u); if (!Number.isInteger(n)) throw new Error('Bad user id'); return n; };
 
 // Get all projects for the current user
 const getProjects = async (req, res) => {
@@ -11,24 +15,25 @@ const getProjects = async (req, res) => {
       const result = await pool.query(
         `WITH RECURSIVE project_tree AS (
           SELECT p.*, u.name as owner_name, u.email as owner_email,
-            (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count,
-            (SELECT COUNT(*) FROM tasks WHERE project_id = p.id AND status = 'done') as completed_count,
-            (SELECT COUNT(*) FROM projects c WHERE c.parent_project_id = p.id) as child_count
+            (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND pm_task_visible(tc.id, ${uidOf(userId)})) as task_count,
+            (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND tc.status = 'done' AND pm_task_visible(tc.id, ${uidOf(userId)})) as completed_count,
+            (SELECT COUNT(*) FROM projects c WHERE c.parent_project_id = p.id AND pm_project_visible(c.id, ${uidOf(userId)})) as child_count
           FROM projects p
           INNER JOIN users u ON p.owner_id = u.id
           LEFT JOIN project_members pm ON p.id = pm.project_id
           WHERE p.parent_project_id IS NULL
-            AND (p.owner_id = $1 OR pm.user_id = $1)
+            AND pm_project_visible(p.id, $1)
 
           UNION ALL
 
           SELECT p.*, u.name as owner_name, u.email as owner_email,
-            (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count,
-            (SELECT COUNT(*) FROM tasks WHERE project_id = p.id AND status = 'done') as completed_count,
-            (SELECT COUNT(*) FROM projects c WHERE c.parent_project_id = p.id) as child_count
+            (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND pm_task_visible(tc.id, ${uidOf(userId)})) as task_count,
+            (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND tc.status = 'done' AND pm_task_visible(tc.id, ${uidOf(userId)})) as completed_count,
+            (SELECT COUNT(*) FROM projects c WHERE c.parent_project_id = p.id AND pm_project_visible(c.id, ${uidOf(userId)})) as child_count
           FROM projects p
           INNER JOIN users u ON p.owner_id = u.id
           INNER JOIN project_tree pt ON p.parent_project_id = pt.id
+          WHERE pm_project_visible(p.id, $1)
         )
         SELECT DISTINCT * FROM project_tree ORDER BY depth, position`,
         [userId]
@@ -42,14 +47,14 @@ const getProjects = async (req, res) => {
     if (parent_id) {
       const result = await pool.query(
         `SELECT DISTINCT p.*, u.name as owner_name, u.email as owner_email,
-          (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count,
-          (SELECT COUNT(*) FROM tasks WHERE project_id = p.id AND status = 'done') as completed_count,
-          (SELECT COUNT(*) FROM projects c WHERE c.parent_project_id = p.id) as child_count
+          (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND pm_task_visible(tc.id, ${uidOf(userId)})) as task_count,
+          (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND tc.status = 'done' AND pm_task_visible(tc.id, ${uidOf(userId)})) as completed_count,
+          (SELECT COUNT(*) FROM projects c WHERE c.parent_project_id = p.id AND pm_project_visible(c.id, ${uidOf(userId)})) as child_count
         FROM projects p
         INNER JOIN users u ON p.owner_id = u.id
         LEFT JOIN project_members pm ON p.id = pm.project_id
         WHERE p.parent_project_id = $1
-          AND (p.owner_id = $2 OR pm.user_id = $2)
+          AND pm_project_visible(p.id, $2)
         ORDER BY p.position, p.created_at`,
         [parent_id, userId]
       );
@@ -61,9 +66,9 @@ const getProjects = async (req, res) => {
     // Default: return top-level projects only (parent_project_id IS NULL)
     let query = `
       SELECT DISTINCT p.*, u.name as owner_name, u.email as owner_email,
-        (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count,
-        (SELECT COUNT(*) FROM tasks WHERE project_id = p.id AND status = 'done') as completed_count,
-        (SELECT COUNT(*) FROM projects c WHERE c.parent_project_id = p.id) as child_count,
+        (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND pm_task_visible(tc.id, ${uidOf(userId)})) as task_count,
+        (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND tc.status = 'done' AND pm_task_visible(tc.id, ${uidOf(userId)})) as completed_count,
+        (SELECT COUNT(*) FROM projects c WHERE c.parent_project_id = p.id AND pm_project_visible(c.id, ${uidOf(userId)})) as child_count,
         desc_counts.descendant_task_count,
         desc_counts.descendant_completed_count
       FROM projects p
@@ -71,17 +76,17 @@ const getProjects = async (req, res) => {
       LEFT JOIN project_members pm ON p.id = pm.project_id
       LEFT JOIN LATERAL (
         WITH RECURSIVE desc_projects AS (
-          SELECT id FROM projects WHERE parent_project_id = p.id
+          SELECT id FROM projects WHERE parent_project_id = p.id AND pm_project_visible(id, $1)
           UNION ALL
-          SELECT pr.id FROM projects pr JOIN desc_projects dp ON pr.parent_project_id = dp.id
+          SELECT pr.id FROM projects pr JOIN desc_projects dp ON pr.parent_project_id = dp.id WHERE pm_project_visible(pr.id, $1)
         )
         SELECT
           COALESCE(COUNT(*), 0) as descendant_task_count,
           COALESCE(COUNT(*) FILTER (WHERE t.status = 'done'), 0) as descendant_completed_count
         FROM tasks t
-        WHERE t.project_id IN (SELECT id FROM desc_projects)
+        WHERE t.project_id IN (SELECT id FROM desc_projects) AND pm_task_visible(t.id, $1)
       ) desc_counts ON true
-      WHERE (p.owner_id = $1 OR pm.user_id = $1)
+      WHERE pm_project_visible(p.id, $1)
         AND p.parent_project_id IS NULL
     `;
 
@@ -118,7 +123,7 @@ const getProjectById = async (req, res) => {
        FROM projects p
        INNER JOIN users u ON p.owner_id = u.id
        LEFT JOIN project_members pm ON p.id = pm.project_id
-       WHERE p.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+       WHERE p.id = $1 AND pm_project_visible(p.id, $2)`,
       [id, userId]
     );
 
@@ -140,11 +145,11 @@ const getProjectById = async (req, res) => {
     // Get child projects with task summaries
     const childrenResult = await pool.query(
       `SELECT p.id, p.name, p.color, p.depth, p.position, p.description,
-        (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count,
-        (SELECT COUNT(*) FROM tasks WHERE project_id = p.id AND status = 'done') as completed_count,
-        (SELECT COUNT(*) FROM tasks WHERE project_id = p.id AND status = 'in_progress') as in_progress_count
+        (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND pm_task_visible(tc.id, ${uidOf(userId)})) as task_count,
+        (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND tc.status = 'done' AND pm_task_visible(tc.id, ${uidOf(userId)})) as completed_count,
+        (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND tc.status = 'in_progress' AND pm_task_visible(tc.id, ${uidOf(userId)})) as in_progress_count
        FROM projects p
-       WHERE p.parent_project_id = $1
+       WHERE p.parent_project_id = $1 AND pm_project_visible(p.id, ${uidOf(userId)})
        ORDER BY p.position, p.created_at`,
       [id]
     );
@@ -154,7 +159,7 @@ const getProjectById = async (req, res) => {
     let parentProject = null;
     if (project.parent_project_id) {
       const parentResult = await pool.query(
-        `SELECT id, name, color, parent_project_id FROM projects WHERE id = $1`,
+        `SELECT id, name, color, parent_project_id FROM projects WHERE id = $1 AND pm_project_visible(id, ${uidOf(userId)})`,
         [project.parent_project_id]
       );
       if (parentResult.rows.length > 0) {
@@ -167,9 +172,9 @@ const getProjectById = async (req, res) => {
     if (project.parent_project_id) {
       const siblingResult = await pool.query(
         `SELECT p.id, p.name, p.color, p.position,
-          (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count
+          (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND pm_task_visible(tc.id, ${uidOf(userId)})) as task_count
          FROM projects p
-         WHERE p.parent_project_id = $1 AND p.id != $2
+         WHERE p.parent_project_id = $1 AND p.id != $2 AND pm_project_visible(p.id, ${uidOf(userId)})
          ORDER BY p.position, p.created_at`,
         [project.parent_project_id, id]
       );
@@ -198,6 +203,10 @@ const createProject = async (req, res) => {
     const { name, description, color, parent_project_id } = req.body;
     const userId = req.user.id;
 
+    if (req.body.privacy !== undefined && req.body.privacy !== null && !privacy.parseLevel(req.body.privacy)) {
+      return res.status(400).json({ error: 'privacy must be business or private' });
+    }
+
     if (!name) {
       return res.status(400).json({
         error: 'Project name is required'
@@ -214,7 +223,7 @@ const createProject = async (req, res) => {
         `SELECT p.id, p.depth, p.owner_id, pm.role
          FROM projects p
          LEFT JOIN project_members pm ON p.id = pm.project_id AND pm.user_id = $2
-         WHERE p.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+         WHERE p.id = $1 AND pm_project_visible(p.id, $2)`,
         [parent_project_id, userId]
       );
 
@@ -225,6 +234,9 @@ const createProject = async (req, res) => {
       }
 
       const parent = parentCheck.rows[0];
+      if (!privacy.canEdit((await privacy.projectAccess(parent_project_id, userId)).role)) {
+        return res.status(403).json({ error: 'Viewers cannot add sub-projects' });
+      }
 
       // Check max depth
       if (parent.depth >= 2) {
@@ -244,11 +256,14 @@ const createProject = async (req, res) => {
       position = posResult.rows[0].next_pos;
     }
 
+    const level = privacy.parseLevel(req.body.privacy)
+      || (parent_project_id && await privacy.projectChainPrivate(parent_project_id) ? 'private' : 'business');
+
     const result = await pool.query(
-      `INSERT INTO projects (name, description, color, owner_id, parent_project_id, depth, position)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO projects (name, description, color, owner_id, parent_project_id, depth, position, privacy)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
-      [name, description, color || '#0ea5e9', userId, parent_project_id || null, depth, position]
+      [name, description, color || '#0ea5e9', userId, parent_project_id || null, depth, position, level]
     );
 
     const newProject = result.rows[0];
@@ -282,21 +297,14 @@ const updateProject = async (req, res) => {
     const { name, description, color, is_archived, parent_project_id } = req.body;
     const userId = req.user.id;
 
-    // Check if user is owner or has editor role
-    const accessCheck = await pool.query(
-      `SELECT p.owner_id, p.parent_project_id as current_parent, p.depth, pm.role
-       FROM projects p
-       LEFT JOIN project_members pm ON p.id = pm.project_id AND pm.user_id = $2
-       WHERE p.id = $1`,
-      [id, userId]
-    );
-
-    if (accessCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Project not found' });
+    // Task 042: only a project this user can see; same answer for hidden and missing.
+    const access = await privacy.projectAccess(id, userId);
+    if (!access.visible) {
+      return res.status(404).json({ error: privacy.NOT_FOUND.project });
     }
-
-    const { owner_id, role, current_parent } = accessCheck.rows[0];
-    if (owner_id !== userId && role !== 'editor') {
+    const accessCheck = { rows: [{ depth: access.row.depth }] };
+    const current_parent = access.row.parent_project_id;
+    if (!privacy.canEdit(access.role)) {
       return res.status(403).json({
         error: 'You do not have permission to edit this project'
       });
@@ -312,8 +320,8 @@ const updateProject = async (req, res) => {
 
         // Check new parent exists
         const newParent = await pool.query(
-          `SELECT id, depth FROM projects WHERE id = $1`,
-          [parent_project_id]
+          `SELECT id, depth FROM projects WHERE id = $1 AND pm_project_visible(id, $2)`,
+          [parent_project_id, userId]
         );
 
         if (newParent.rows.length === 0) {
@@ -323,12 +331,12 @@ const updateProject = async (req, res) => {
         // Check depth would not exceed limit
         // Get max depth of descendants of this project
         const descDepth = await pool.query(
-          `WITH RECURSIVE desc AS (
+          `WITH RECURSIVE descendants AS (
             SELECT id, depth FROM projects WHERE parent_project_id = $1
             UNION ALL
-            SELECT p.id, p.depth FROM projects p JOIN desc d ON p.parent_project_id = d.id
+            SELECT p.id, p.depth FROM projects p JOIN descendants d ON p.parent_project_id = d.id
           )
-          SELECT COALESCE(MAX(depth), -1) as max_depth FROM desc`,
+          SELECT COALESCE(MAX(depth), -1) as max_depth FROM descendants`,
           [id]
         );
 
@@ -344,12 +352,12 @@ const updateProject = async (req, res) => {
 
         // Check not creating a cycle (can't parent to own descendant)
         const cycleCheck = await pool.query(
-          `WITH RECURSIVE desc AS (
+          `WITH RECURSIVE descendants AS (
             SELECT id FROM projects WHERE parent_project_id = $1
             UNION ALL
-            SELECT p.id FROM projects p JOIN desc d ON p.parent_project_id = d.id
+            SELECT p.id FROM projects p JOIN descendants d ON p.parent_project_id = d.id
           )
-          SELECT EXISTS(SELECT 1 FROM desc WHERE id = $2) as is_descendant`,
+          SELECT EXISTS(SELECT 1 FROM descendants WHERE id = $2) as is_descendant`,
           [id, parent_project_id]
         );
 
@@ -402,12 +410,12 @@ const updateProject = async (req, res) => {
       // Update all descendants' depth
       if (depthShift !== 0) {
         await pool.query(
-          `WITH RECURSIVE desc AS (
+          `WITH RECURSIVE descendants AS (
             SELECT id FROM projects WHERE parent_project_id = $1
             UNION ALL
-            SELECT p.id FROM projects p JOIN desc d ON p.parent_project_id = d.id
+            SELECT p.id FROM projects p JOIN descendants d ON p.parent_project_id = d.id
           )
-          UPDATE projects SET depth = depth + $2 WHERE id IN (SELECT id FROM desc)`,
+          UPDATE projects SET depth = depth + $2 WHERE id IN (SELECT id FROM descendants)`,
           [id, depthShift]
         );
       }
@@ -432,8 +440,8 @@ const deleteProject = async (req, res) => {
 
     // Check if user is owner
     const ownerCheck = await pool.query(
-      'SELECT owner_id FROM projects WHERE id = $1',
-      [id]
+      'SELECT owner_id FROM projects WHERE id = $1 AND pm_project_visible(id, $2)',
+      [id, userId]
     );
 
     if (ownerCheck.rows.length === 0) {
@@ -449,12 +457,12 @@ const deleteProject = async (req, res) => {
     if (delete_children === 'true') {
       // Recursively delete all descendants first
       await pool.query(
-        `WITH RECURSIVE desc AS (
+        `WITH RECURSIVE descendants AS (
           SELECT id FROM projects WHERE parent_project_id = $1
           UNION ALL
-          SELECT p.id FROM projects p JOIN desc d ON p.parent_project_id = d.id
+          SELECT p.id FROM projects p JOIN descendants d ON p.parent_project_id = d.id
         )
-        DELETE FROM projects WHERE id IN (SELECT id FROM desc)`,
+        DELETE FROM projects WHERE id IN (SELECT id FROM descendants)`,
         [id]
       );
     } else {
@@ -500,8 +508,8 @@ const shareProject = async (req, res) => {
 
     // Check if user is owner
     const ownerCheck = await pool.query(
-      'SELECT owner_id FROM projects WHERE id = $1',
-      [id]
+      'SELECT owner_id FROM projects WHERE id = $1 AND pm_project_visible(id, $2)',
+      [id, userId]
     );
 
     if (ownerCheck.rows.length === 0) {
@@ -512,6 +520,11 @@ const shareProject = async (req, res) => {
       return res.status(403).json({
         error: 'Only the project owner can share the project'
       });
+    }
+
+    // Task 042: a Private project is only for its owner; it is not shared until it is Business.
+    if (await privacy.projectChainPrivate(id)) {
+      return res.status(400).json({ error: 'This project is Private. Make it Business before sharing it.' });
     }
 
     // Find user by email
@@ -577,14 +590,14 @@ const shareProject = async (req, res) => {
 
     // Also share with all child projects (dynamic inheritance)
     await pool.query(
-      `WITH RECURSIVE desc AS (
+      `WITH RECURSIVE descendants AS (
         SELECT id FROM projects WHERE parent_project_id = $1
         UNION ALL
-        SELECT p.id FROM projects p JOIN desc d ON p.parent_project_id = d.id
+        SELECT p.id FROM projects p JOIN descendants d ON p.parent_project_id = d.id
       )
       INSERT INTO project_members (project_id, user_id, role, added_by)
       SELECT d.id, $2, $3, $4
-      FROM desc d
+      FROM descendants d
       ON CONFLICT (project_id, user_id) DO UPDATE SET role = $3`,
       [id, shareWithUserId, role, userId]
     );
@@ -613,8 +626,8 @@ const removeProjectMember = async (req, res) => {
 
     // Check if user is owner
     const ownerCheck = await pool.query(
-      'SELECT owner_id FROM projects WHERE id = $1',
-      [id]
+      'SELECT owner_id FROM projects WHERE id = $1 AND pm_project_visible(id, $2)',
+      [id, userId]
     );
 
     if (ownerCheck.rows.length === 0) {
@@ -652,7 +665,7 @@ const getProjectChildren = async (req, res) => {
     const accessCheck = await pool.query(
       `SELECT p.id FROM projects p
        LEFT JOIN project_members pm ON p.id = pm.project_id
-       WHERE p.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+       WHERE p.id = $1 AND pm_project_visible(p.id, $2)`,
       [id, userId]
     );
 
@@ -663,11 +676,11 @@ const getProjectChildren = async (req, res) => {
     const result = await pool.query(
       `SELECT p.id, p.name, p.description, p.color, p.depth, p.position,
         p.created_at, p.updated_at,
-        (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count,
-        (SELECT COUNT(*) FROM tasks WHERE project_id = p.id AND status = 'done') as completed_count,
-        (SELECT COUNT(*) FROM tasks WHERE project_id = p.id AND status = 'in_progress') as in_progress_count
+        (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND pm_task_visible(tc.id, ${uidOf(userId)})) as task_count,
+        (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND tc.status = 'done' AND pm_task_visible(tc.id, ${uidOf(userId)})) as completed_count,
+        (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND tc.status = 'in_progress' AND pm_task_visible(tc.id, ${uidOf(userId)})) as in_progress_count
        FROM projects p
-       WHERE p.parent_project_id = $1
+       WHERE p.parent_project_id = $1 AND pm_project_visible(p.id, ${uidOf(userId)})
        ORDER BY p.position, p.created_at`,
       [id]
     );
@@ -692,7 +705,7 @@ const getProjectTree = async (req, res) => {
     const accessCheck = await pool.query(
       `SELECT p.id FROM projects p
        LEFT JOIN project_members pm ON p.id = pm.project_id
-       WHERE p.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+       WHERE p.id = $1 AND pm_project_visible(p.id, $2)`,
       [id, userId]
     );
 
@@ -704,19 +717,20 @@ const getProjectTree = async (req, res) => {
     const treeResult = await pool.query(
       `WITH RECURSIVE tree AS (
         SELECT p.id, p.name, p.color, p.depth, p.position, p.parent_project_id,
-          (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count,
-          (SELECT COUNT(*) FROM tasks WHERE project_id = p.id AND status = 'done') as completed_count,
-          (SELECT COUNT(*) FROM tasks WHERE project_id = p.id AND status = 'in_progress') as in_progress_count
+          (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND pm_task_visible(tc.id, ${uidOf(userId)})) as task_count,
+          (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND tc.status = 'done' AND pm_task_visible(tc.id, ${uidOf(userId)})) as completed_count,
+          (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND tc.status = 'in_progress' AND pm_task_visible(tc.id, ${uidOf(userId)})) as in_progress_count
         FROM projects p WHERE p.id = $1
 
         UNION ALL
 
         SELECT p.id, p.name, p.color, p.depth, p.position, p.parent_project_id,
-          (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count,
-          (SELECT COUNT(*) FROM tasks WHERE project_id = p.id AND status = 'done') as completed_count,
-          (SELECT COUNT(*) FROM tasks WHERE project_id = p.id AND status = 'in_progress') as in_progress_count
+          (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND pm_task_visible(tc.id, ${uidOf(userId)})) as task_count,
+          (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND tc.status = 'done' AND pm_task_visible(tc.id, ${uidOf(userId)})) as completed_count,
+          (SELECT COUNT(*) FROM tasks tc WHERE tc.project_id = p.id AND tc.status = 'in_progress' AND pm_task_visible(tc.id, ${uidOf(userId)})) as in_progress_count
         FROM projects p
         INNER JOIN tree t ON p.parent_project_id = t.id
+        WHERE pm_project_visible(p.id, ${uidOf(userId)})
       )
       SELECT * FROM tree ORDER BY depth, position`,
       [id]
@@ -724,15 +738,16 @@ const getProjectTree = async (req, res) => {
 
     // Also get all tasks for child projects (for combined Gantt)
     const tasksResult = await pool.query(
-      `WITH RECURSIVE desc AS (
+      `WITH RECURSIVE descendants AS (
         SELECT id FROM projects WHERE parent_project_id = $1
         UNION ALL
-        SELECT p.id FROM projects p JOIN desc d ON p.parent_project_id = d.id
+        SELECT p.id FROM projects p JOIN descendants d ON p.parent_project_id = d.id
       )
       SELECT t.*, p.name as project_name, p.color as project_color
       FROM tasks t
-      INNER JOIN desc d ON t.project_id = d.id
+      INNER JOIN descendants d ON t.project_id = d.id
       INNER JOIN projects p ON t.project_id = p.id
+      WHERE pm_task_visible(t.id, ${uidOf(userId)})
       ORDER BY p.position, t.position`,
       [id]
     );
@@ -761,29 +776,20 @@ const reorderProjects = async (req, res) => {
       return res.status(400).json({ error: 'children array is required' });
     }
 
-    // Check access to parent
-    const accessCheck = await pool.query(
-      `SELECT p.owner_id, pm.role
-       FROM projects p
-       LEFT JOIN project_members pm ON p.id = pm.project_id AND pm.user_id = $2
-       WHERE p.id = $1`,
-      [id, userId]
-    );
-
-    if (accessCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Project not found' });
+    // Task 042: only a project this user can see.
+    const access = await privacy.projectAccess(id, userId);
+    if (!access.visible) {
+      return res.status(404).json({ error: privacy.NOT_FOUND.project });
     }
-
-    const { owner_id, role } = accessCheck.rows[0];
-    if (owner_id !== userId && role !== 'editor') {
+    if (!privacy.canEdit(access.role)) {
       return res.status(403).json({ error: 'No permission to reorder' });
     }
 
     // Validate all children belong to this parent
     const childIds = children.map(c => c.id);
     const validation = await pool.query(
-      `SELECT id FROM projects WHERE parent_project_id = $1 AND id = ANY($2::int[])`,
-      [id, childIds]
+      `SELECT id FROM projects WHERE parent_project_id = $1 AND id = ANY($2::int[]) AND pm_project_visible(id, $3)`,
+      [id, childIds, userId]
     );
 
     if (validation.rows.length !== childIds.length) {

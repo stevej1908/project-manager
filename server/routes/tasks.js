@@ -12,12 +12,15 @@ const {
   addAssignee,
   removeAssignee
 } = require('../controllers/taskController');
+const { getTaskPrivacy, setTaskPrivacy } = require('../controllers/privacyController');
 
 // All routes require authentication
 router.use(authenticate);
 
 // Task CRUD
 router.get('/', getTasks);
+router.get('/:id/privacy', getTaskPrivacy);
+router.put('/:id/privacy', setTaskPrivacy);
 router.get('/:id', getTaskById);
 router.post('/', createTask);
 router.put('/:id', updateTask);

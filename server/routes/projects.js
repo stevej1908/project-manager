@@ -13,6 +13,7 @@ const {
   getProjectTree,
   reorderProjects
 } = require('../controllers/projectController');
+const { getProjectPrivacy, setProjectPrivacy } = require('../controllers/privacyController');
 
 // All routes require authentication
 router.use(authenticate);
@@ -27,6 +28,8 @@ router.get('/:id/tree', getProjectTree);
 router.put('/:id/reorder', reorderProjects);
 
 // Single project
+router.get('/:id/privacy', getProjectPrivacy);
+router.put('/:id/privacy', setProjectPrivacy);
 router.get('/:id', getProjectById);
 router.put('/:id', updateProject);
 router.delete('/:id', deleteProject);

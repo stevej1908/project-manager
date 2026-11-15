@@ -1,4 +1,5 @@
 const { pool } = require('../config/database');
+const privacy = require('../lib/privacy');
 
 // Get project-level dependencies
 const getProjectDependencies = async (req, res) => {
@@ -13,13 +14,12 @@ const getProjectDependencies = async (req, res) => {
     // Check access
     const accessCheck = await pool.query(
       `SELECT p.id FROM projects p
-       LEFT JOIN project_members pm ON p.id = pm.project_id
-       WHERE p.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+       WHERE p.id = $1 AND pm_project_visible(p.id, $2)`,
       [projectId, userId]
     );
 
     if (accessCheck.rows.length === 0) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.status(404).json({ error: privacy.NOT_FOUND.project });
     }
 
     // Get all project dependencies where this project or its children are involved
@@ -31,16 +31,17 @@ const getProjectDependencies = async (req, res) => {
        FROM project_dependencies pd
        INNER JOIN projects sp ON pd.source_project_id = sp.id
        INNER JOIN projects tp ON pd.target_project_id = tp.id
-       WHERE pd.source_project_id IN (
+       WHERE (pd.source_project_id IN (
          SELECT id FROM projects WHERE parent_project_id = $1
        )
        OR pd.target_project_id IN (
          SELECT id FROM projects WHERE parent_project_id = $1
        )
        OR pd.source_project_id = $1
-       OR pd.target_project_id = $1
+       OR pd.target_project_id = $1)
+       AND pm_project_visible(sp.id, $2) AND pm_project_visible(tp.id, $2)
        ORDER BY pd.created_at DESC`,
-      [projectId]
+      [projectId, userId]
     );
 
     res.json({ dependencies: result.rows });
@@ -75,7 +76,7 @@ const createProjectDependency = async (req, res) => {
       `SELECT p.id, p.parent_project_id, p.name
        FROM projects p
        LEFT JOIN project_members pm ON p.id = pm.project_id AND pm.user_id = $3
-       WHERE p.id IN ($1, $2) AND (p.owner_id = $3 OR pm.user_id = $3)`,
+       WHERE p.id IN ($1, $2) AND pm_project_visible(p.id, $3)`,
       [source_project_id, target_project_id, userId]
     );
 
@@ -142,7 +143,7 @@ const updateProjectDependency = async (req, res) => {
       `SELECT pd.id FROM project_dependencies pd
        INNER JOIN projects p ON pd.source_project_id = p.id
        LEFT JOIN project_members pm ON p.id = pm.project_id
-       WHERE pd.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+       WHERE pd.id = $1 AND pm_project_visible(p.id, $2)`,
       [id, userId]
     );
 
@@ -180,7 +181,7 @@ const deleteProjectDependency = async (req, res) => {
       `SELECT pd.id FROM project_dependencies pd
        INNER JOIN projects p ON pd.source_project_id = p.id
        LEFT JOIN project_members pm ON p.id = pm.project_id
-       WHERE pd.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+       WHERE pd.id = $1 AND pm_project_visible(p.id, $2)`,
       [id, userId]
     );
 

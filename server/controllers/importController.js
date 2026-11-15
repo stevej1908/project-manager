@@ -1,5 +1,6 @@
 const Papa = require('papaparse');
 const { pool } = require('../config/database');
+const privacy = require('../lib/privacy');
 
 const SYSTEM_FIELDS = [
   { key: 'title', label: 'Title', required: true },
@@ -249,20 +250,18 @@ const executeImport = async (req, res) => {
       });
     }
 
-    // Check project access (same pattern as createTask)
-    const accessCheck = await client.query(
-      `SELECT p.owner_id, pm.role FROM projects p
-       LEFT JOIN project_members pm ON p.id = pm.project_id AND pm.user_id = $2
-       WHERE p.id = $1`,
-      [projectId, userId]
-    );
-
-    if (accessCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Project not found' });
+    // Task 042: only into a project this user can see (before, anyone could import into any
+    // project); one Business / Private answer for the whole file.
+    const access = await privacy.projectAccess(projectId, userId, client);
+    if (!access.visible) {
+      return res.status(404).json({ error: privacy.NOT_FOUND.project });
     }
-
-    const { owner_id, role } = accessCheck.rows[0];
-    if (owner_id !== userId && role === 'viewer') {
+    if (req.body.privacy !== undefined && req.body.privacy !== null && !privacy.parseLevel(req.body.privacy)) {
+      return res.status(400).json({ error: 'privacy must be business or private' });
+    }
+    const importLevel = privacy.parseLevel(req.body.privacy)
+      || (await privacy.projectChainPrivate(projectId, client) ? 'private' : 'business');
+    if (!privacy.canEdit(access.role)) {
       return res.status(403).json({ error: 'Viewers cannot import tasks' });
     }
 
@@ -359,10 +358,10 @@ const executeImport = async (req, res) => {
       const position = await getNextPosition(parentTaskId);
 
       const result = await client.query(
-        `INSERT INTO tasks (project_id, title, description, start_date, end_date, status, priority, position, created_by, parent_task_id, depth_level)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        `INSERT INTO tasks (project_id, title, description, start_date, end_date, status, priority, position, created_by, parent_task_id, depth_level, privacy)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          RETURNING id`,
-        [projectId, title, description, startDate, endDate, status, priority, position, userId, parentTaskId, depthLevel]
+        [projectId, title, description, startDate, endDate, status, priority, position, userId, parentTaskId, depthLevel, importLevel]
       );
 
       const taskId = result.rows[0].id;
@@ -375,6 +374,10 @@ const executeImport = async (req, res) => {
           // Basic email format validation
           if (!email.includes('@')) {
             errors.push({ title, error: `Invalid assignee email: "${email}"` });
+            continue;
+          }
+          if (importLevel === 'private' && await privacy.otherUserAssignees(userId, [{ contact_email: email }], client)) {
+            errors.push({ title, error: `Not assigned to ${email}: a Private task can only be assigned to you` });
             continue;
           }
           await client.query(
@@ -419,8 +422,8 @@ const executeImport = async (req, res) => {
         // Fall back to existing tasks in the project
         if (!parentTaskId && parentTitle) {
           const existingParent = await client.query(
-            'SELECT id, depth_level FROM tasks WHERE project_id = $1 AND title = $2 LIMIT 1',
-            [projectId, parentTitle]
+            'SELECT id, depth_level FROM tasks WHERE project_id = $1 AND title = $2 AND pm_task_visible(id, $3) LIMIT 1',
+            [projectId, parentTitle, userId]
           );
           if (existingParent.rows.length > 0) {
             parentTaskId = existingParent.rows[0].id;
@@ -478,8 +481,8 @@ const executeImport = async (req, res) => {
               dependsOnId = createdTaskMap[reference] || null;
               if (!dependsOnId) {
                 const existing = await client.query(
-                  'SELECT id FROM tasks WHERE project_id = $1 AND title = $2 LIMIT 1',
-                  [projectId, reference]
+                  'SELECT id FROM tasks WHERE project_id = $1 AND title = $2 AND pm_task_visible(id, $3) LIMIT 1',
+                  [projectId, reference, userId]
                 );
                 if (existing.rows.length > 0) {
                   dependsOnId = existing.rows[0].id;
