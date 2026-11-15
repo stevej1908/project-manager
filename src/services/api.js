@@ -70,6 +70,13 @@ export const projectsAPI = {
     apiRequest(`/projects/${projectId}/members/${memberId}`, { method: 'DELETE' }),
 };
 
+// Task 042: who can see a project or task (type: 'project' | 'task')
+export const privacyAPI = {
+  get: (type, id) => apiRequest(`/${type === 'project' ? 'projects' : 'tasks'}/${id}/privacy`),
+  set: (type, id, privacy) =>
+    apiRequest(`/${type === 'project' ? 'projects' : 'tasks'}/${id}/privacy`, { method: 'PUT', body: JSON.stringify({ privacy }) }),
+};
+
 // Project Dependencies API
 export const projectDependenciesAPI = {
   getAll: (projectId) => apiRequest(`/project-dependencies?projectId=${projectId}`),

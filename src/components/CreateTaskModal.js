@@ -2,6 +2,7 @@ import React, { useState, useContext } from 'react';
 import { ProjectContext } from '../context/ProjectContext';
 import { X, User, Plus, Trash2 } from 'lucide-react';
 import ContactsPickerModal from './ContactsPickerModal';
+import PrivacyQuestion from './PrivacyQuestion';
 
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'];
 const STATUSES = ['todo', 'in_progress', 'review', 'done'];
@@ -18,14 +19,19 @@ export default function CreateTaskModal({ projectId, initialStatus = 'todo', par
   const [showContactsPicker, setShowContactsPicker] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [asking, setAsking] = useState(false);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
     if (!title.trim()) {
       setError('Task title is required');
       return;
     }
+    setError('');
+    setAsking(true);   // Task 042: ask "Should this record be private?" first
+  };
 
+  const save = async (privacy) => {
     try {
       setLoading(true);
       setError('');
@@ -46,7 +52,8 @@ export default function CreateTaskModal({ projectId, initialStatus = 'todo', par
         priority,
         status,
         parent_task_id: parentTaskId,
-        assignees: assigneesData
+        assignees: assigneesData,
+        privacy
       });
       await loadTasks(projectId);
       onClose();
@@ -212,6 +219,9 @@ export default function CreateTaskModal({ projectId, initialStatus = 'todo', par
             </div>
           </div>
 
+          {asking ? (
+            <PrivacyQuestion busy={loading} error={error} onChoose={save} onBack={() => setAsking(false)} />
+          ) : (
           <div className="flex gap-3 pt-4">
             <button
               type="button"
@@ -228,6 +238,7 @@ export default function CreateTaskModal({ projectId, initialStatus = 'todo', par
               {loading ? 'Creating...' : 'Create Task'}
             </button>
           </div>
+          )}
         </form>
       </div>
 

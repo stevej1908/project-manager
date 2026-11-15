@@ -5,6 +5,7 @@ import CreateTaskModal from './CreateTaskModal';
 import TaskDetailsModal from './TaskDetailsModal';
 import { format } from 'date-fns';
 import { dependenciesAPI } from '../services/api';
+import { PrivateBadge } from './PrivacyQuestion';
 
 const STATUS_COLUMNS = [
   { id: 'todo', title: 'To Do' },
@@ -141,6 +142,7 @@ export default function TaskListView({ projectId }) {
               <span className="text-sm text-gray-900 font-medium">
                 {task.title}
               </span>
+              <PrivateBadge privacy={task.privacy} />
 
               {/* Dependency indicator */}
               {taskDependencies[task.id] > 0 && (

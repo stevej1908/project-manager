@@ -1,6 +1,7 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { ProjectContext } from '../context/ProjectContext';
+import { PrivacySwitch } from '../components/PrivacyQuestion';
 import {
   ArrowLeft,
   Plus,
@@ -92,8 +93,10 @@ export default function ProjectPage({ projectId, onBack, initialView, focusTaskI
                     <ChevronRight className="w-3 h-3" />
                   </div>
                 )}
-                <h1 className="text-2xl font-bold text-gray-900">
+                <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
                   {currentProject.name}
+                  {/* Task 042: only the owner sees this switch */}
+                  <PrivacySwitch type="project" id={currentProject.id} onChanged={() => loadProject(currentProject.id)} />
                 </h1>
                 {currentProject.description && (
                   <p className="text-sm text-gray-600 mt-1">

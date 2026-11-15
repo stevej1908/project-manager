@@ -49,10 +49,32 @@ describe('CreateTaskModal status field (item 5)', () => {
     await userEvent.type(screen.getByPlaceholderText(/enter task title/i), 'A task');
     await userEvent.selectOptions(screen.getByRole('combobox'), 'review');
     await userEvent.click(screen.getByRole('button', { name: /create task/i }));
+    // Task 042: saving first asks "Should this record be private?"
+    await userEvent.click(screen.getByRole('button', { name: /business - others can see/i }));
 
     await waitFor(() => expect(createTask).toHaveBeenCalledTimes(1));
     expect(createTask).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'review', title: 'A task' })
+      expect.objectContaining({ status: 'review', title: 'A task', privacy: 'business' })
     );
+  });
+});
+
+describe('CreateTaskModal privacy question (task 042)', () => {
+  test('saving asks the question first; nothing is created until it is answered', async () => {
+    const { createTask } = renderModal();
+    await userEvent.type(screen.getByPlaceholderText(/enter task title/i), 'Doctor visit');
+    await userEvent.click(screen.getByRole('button', { name: /create task/i }));
+    expect(screen.getByText('Should this record be private?')).toBeInTheDocument();
+    expect(createTask).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: /private - only me/i }));
+    await waitFor(() => expect(createTask).toHaveBeenCalledWith(expect.objectContaining({ title: 'Doctor visit', privacy: 'private' })));
+  });
+  test('Back returns to the form without saving', async () => {
+    const { createTask } = renderModal();
+    await userEvent.type(screen.getByPlaceholderText(/enter task title/i), 'Something');
+    await userEvent.click(screen.getByRole('button', { name: /create task/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^back$/i }));
+    expect(screen.getByRole('button', { name: /create task/i })).toBeInTheDocument();
+    expect(createTask).not.toHaveBeenCalled();
   });
 });

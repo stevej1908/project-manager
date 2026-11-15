@@ -5,6 +5,7 @@ import { projectsAPI } from '../services/api';
 import { Plus, Folder, LogOut, CheckSquare, ChevronRight, ChevronDown, FolderTree } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 import CreateProjectModal from '../components/CreateProjectModal';
+import { PrivateBadge } from '../components/PrivacyQuestion';
 
 export default function DashboardPage() {
   const { user, logout, setCurrentView } = useContext(AuthContext);
@@ -255,8 +256,9 @@ export default function DashboardPage() {
                         </button>
                       </div>
                     </div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2 flex items-center gap-2">
                       {project.name}
+                      <PrivateBadge privacy={project.privacy} />
                     </h3>
                     {project.description && (
                       <p className="text-sm text-gray-600 mb-4 line-clamp-2">

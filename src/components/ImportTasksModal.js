@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
+import PrivacyQuestion from './PrivacyQuestion';
 import { X, FileText, Check, AlertTriangle, ChevronRight, ChevronLeft, FileUp } from 'lucide-react';
 import { importAPI } from '../services/api';
 
@@ -156,7 +157,9 @@ export default function ImportTasksModal({ projectId, onClose, onImportComplete 
   const selectAll = () => setSelectedRows(mappedRows.map((_, idx) => idx));
   const deselectAll = () => setSelectedRows([]);
 
-  const handleImport = async () => {
+  // Task 042: one "Should these records be private?" answer for the whole import.
+  const [askingPrivacy, setAskingPrivacy] = useState(false);
+  const handleImport = async (privacy) => {
     try {
       setImporting(true);
       setImportError('');
@@ -165,6 +168,7 @@ export default function ImportTasksModal({ projectId, onClose, onImportComplete 
         projectId,
         mappings,
         rows: selectedData,
+        privacy,
       });
       setImportResult(result);
       setStep(4);
@@ -461,6 +465,12 @@ export default function ImportTasksModal({ projectId, onClose, onImportComplete 
                 </table>
               </div>
 
+              {askingPrivacy && (
+                <div className="mt-6">
+                  <PrivacyQuestion busy={importing} error={importError} onChoose={handleImport} onBack={() => setAskingPrivacy(false)} />
+                </div>
+              )}
+              {!askingPrivacy && (
               <div className="flex justify-between mt-6">
                 <button
                   onClick={() => setStep(2)}
@@ -470,13 +480,14 @@ export default function ImportTasksModal({ projectId, onClose, onImportComplete 
                   Back
                 </button>
                 <button
-                  onClick={handleImport}
+                  onClick={() => setAskingPrivacy(true)}
                   disabled={selectedRows.length === 0 || importing}
                   className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50"
                 >
                   {importing ? 'Importing...' : `Import Selected (${selectedRows.length} tasks)`}
                 </button>
               </div>
+              )}
             </div>
           )}
 

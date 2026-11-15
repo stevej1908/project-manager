@@ -1,6 +1,7 @@
 import React, { useState, useContext } from 'react';
 import { ProjectContext } from '../context/ProjectContext';
 import { X } from 'lucide-react';
+import PrivacyQuestion from './PrivacyQuestion';
 
 const COLORS = [
   '#0ea5e9', // sky
@@ -18,20 +19,25 @@ export default function CreateProjectModal({ onClose, parentProjectId, parentPro
   const [color, setColor] = useState(COLORS[0]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [asking, setAsking] = useState(false);
 
   const isSubProject = !!parentProjectId;
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
     if (!name.trim()) {
       setError('Project name is required');
       return;
     }
+    setError('');
+    setAsking(true);   // Task 042: ask "Should this record be private?" first
+  };
 
+  const save = async (privacy) => {
     try {
       setLoading(true);
       setError('');
-      const data = { name, description, color };
+      const data = { name, description, color, privacy };
       if (parentProjectId) {
         data.parent_project_id = parentProjectId;
       }
@@ -119,6 +125,9 @@ export default function CreateProjectModal({ onClose, parentProjectId, parentPro
             </div>
           </div>
 
+          {asking ? (
+            <PrivacyQuestion busy={loading} error={error} onChoose={save} onBack={() => setAsking(false)} />
+          ) : (
           <div className="flex gap-3 pt-4">
             <button
               type="button"
@@ -135,6 +144,7 @@ export default function CreateProjectModal({ onClose, parentProjectId, parentPro
               {loading ? 'Creating...' : isSubProject ? 'Create Sub-Project' : 'Create Project'}
             </button>
           </div>
+          )}
         </form>
       </div>
     </div>

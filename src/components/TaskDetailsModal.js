@@ -23,6 +23,7 @@ import DriveFilePicker from './DriveFilePicker';
 import EmailAttachmentModal from './EmailAttachmentModal';
 import ContactsPickerModal from './ContactsPickerModal';
 import CreateTaskModal from './CreateTaskModal';
+import { PrivacySwitch } from './PrivacyQuestion';
 
 const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'urgent'];
 const STATUS_OPTIONS = ['todo', 'in_progress', 'review', 'done'];
@@ -429,7 +430,11 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
       <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <h2 className="text-2xl font-bold text-gray-900">Task Details</h2>
+          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
+            Task Details
+            {/* Task 042: only the task's owner sees this switch */}
+            {task && task.id && <PrivacySwitch type="task" id={task.id} />}
+          </h2>
           <button
             onClick={onClose}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
+import PrivacyQuestion from './PrivacyQuestion';
 import { ProjectContext } from '../context/ProjectContext';
 import { googleAPI } from '../services/api';
 import { X, Mail } from 'lucide-react';
@@ -26,10 +27,13 @@ export default function GmailPickerModal({ projectId, onClose }) {
     }
   };
 
-  const handleCreateTask = async (message) => {
+  // Task 042: clicking an email asks "Should this record be private?" before the task is made.
+  const [pending, setPending] = useState(null);
+  const handleCreateTask = async (message, privacy) => {
     try {
       setCreating(true);
       await createTask({
+        privacy,
         project_id: projectId,
         title: message.subject || 'Email task',
         description: `From: ${message.from}\n\n${message.snippet}`,
@@ -57,6 +61,12 @@ export default function GmailPickerModal({ projectId, onClose }) {
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
+          {pending && (
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 mb-2 truncate">Task from: {pending.subject || 'Email task'}</p>
+              <PrivacyQuestion busy={creating} onChoose={(level) => handleCreateTask(pending, level)} onBack={() => setPending(null)} />
+            </div>
+          )}
           {loading ? (
             <LoadingSpinner />
           ) : (
@@ -65,7 +75,7 @@ export default function GmailPickerModal({ projectId, onClose }) {
                 <div
                   key={message.id}
                   className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 cursor-pointer"
-                  onClick={() => !creating && handleCreateTask(message)}
+                  onClick={() => !creating && setPending(message)}
                 >
                   <div className="flex items-start gap-3">
                     <Mail className="w-5 h-5 text-gray-400 mt-1" />
