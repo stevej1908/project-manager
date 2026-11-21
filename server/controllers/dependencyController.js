@@ -252,18 +252,22 @@ const getTaskDependencies = async (req, res) => {
 
     // Get dependencies where this task depends on others
     const dependsOn = await pool.query(
-      `SELECT td.*, t.title as task_title, t.status, t.end_date
+      `SELECT td.*, t.title as task_title, t.status, t.end_date,
+              t.project_id, p.name as project_name
        FROM task_dependencies td
        INNER JOIN tasks t ON td.depends_on_task_id = t.id
+       INNER JOIN projects p ON p.id = t.project_id
        WHERE td.dependent_task_id = $1 AND pm_task_visible(t.id, $2)`,
       [taskId, userId]
     );
 
     // Get dependencies where other tasks depend on this one
     const blockedBy = await pool.query(
-      `SELECT td.*, t.title as task_title, t.status, t.start_date
+      `SELECT td.*, t.title as task_title, t.status, t.start_date,
+              t.project_id, p.name as project_name
        FROM task_dependencies td
        INNER JOIN tasks t ON td.dependent_task_id = t.id
+       INNER JOIN projects p ON p.id = t.project_id
        WHERE td.depends_on_task_id = $1 AND pm_task_visible(t.id, $2)`,
       [taskId, userId]
     );
@@ -332,7 +336,72 @@ const getCrossProjectDependencies = async (req, res) => {
   }
 };
 
+// Task 047 (WES CRM handoff): links between a task in this project and a task in ANOTHER project.
+// GET /api/dependencies/external?projectId=X
+//   waits_on: tasks here that wait on a task elsewhere.  holds_up: tasks here that something elsewhere waits on.
+// Each row names the other task and its project. A row whose other task this viewer can't see (Private)
+// carries only { hidden: true } and is listed only while it still matters (the blocker is unfinished,
+// or, for holds_up, this task is unfinished) - no title, id, project or count beyond that (task 042/045).
+const DONE_STATUSES = ['done', 'completed'];
+const getExternalDependencies = async (req, res) => {
+  try {
+    const { projectId } = req.query;
+    const userId = req.user.id;
+    if (!projectId) return res.status(400).json({ error: 'Project ID is required' });
+
+    const access = await pool.query(
+      `SELECT p.id, p.parent_project_id FROM projects p WHERE p.id = $1 AND pm_project_visible(p.id, $2)`,
+      [projectId, userId]
+    );
+    if (access.rows.length === 0) return res.status(404).json({ error: privacy.NOT_FOUND.project });
+
+    const rows = async (hereCol, thereCol) => (await pool.query(
+      `SELECT td.id AS dependency_id, td.dependency_type,
+              here.id AS task_id, here.status AS task_status,
+              there.id AS other_task_id, there.title AS other_title, there.status AS other_status,
+              there.project_id AS other_project_id, op.name AS other_project_name,
+              op.parent_project_id AS other_parent_id,
+              pm_task_visible(there.id, $2) AS visible
+       FROM task_dependencies td
+       INNER JOIN tasks here ON here.id = td.${hereCol}
+       INNER JOIN tasks there ON there.id = td.${thereCol}
+       INNER JOIN projects op ON op.id = there.project_id
+       WHERE here.project_id = $1 AND there.project_id <> $1 AND pm_task_visible(here.id, $2)
+       ORDER BY here.id, there.id`,
+      [projectId, userId]
+    )).rows;
+
+    const parentId = access.rows[0].parent_project_id;
+    const shape = (r, stillMatters) => {
+      if (!r.visible) return stillMatters ? { dependency_id: r.dependency_id, task_id: r.task_id, hidden: true, other_done: false } : null;
+      return {
+        dependency_id: r.dependency_id, task_id: r.task_id, dependency_type: r.dependency_type,
+        other_task_id: r.other_task_id, other_title: r.other_title, other_status: r.other_status,
+        other_done: DONE_STATUSES.includes(r.other_status),
+        other_project_id: r.other_project_id, other_project_name: r.other_project_name,
+        // the combined Gantt that draws this link is the shared parent's
+        shared_parent_id: parentId && r.other_parent_id === parentId ? parentId : null,
+      };
+    };
+    const waitsOn = (await rows('dependent_task_id', 'depends_on_task_id'))
+      .map(r => shape(r, !DONE_STATUSES.includes(r.other_status))).filter(Boolean);
+    const holdsUp = (await rows('depends_on_task_id', 'dependent_task_id'))
+      .map(r => shape(r, !DONE_STATUSES.includes(r.task_status))).filter(Boolean);
+
+    let parent = null;
+    if (parentId) {
+      const p = await pool.query(`SELECT id, name FROM projects WHERE id = $1 AND pm_project_visible(id, $2)`, [parentId, userId]);
+      parent = p.rows[0] || null;
+    }
+    res.json({ project_id: Number(projectId), parent, waits_on: waitsOn, holds_up: holdsUp });
+  } catch (error) {
+    console.error('Error getting external dependencies:', error);
+    res.status(500).json({ error: 'Failed to get links to other projects', message: error.message });
+  }
+};
+
 module.exports = {
+  getExternalDependencies,
   getDependencies,
   createDependency,
   updateDependency,

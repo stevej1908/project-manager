@@ -2,13 +2,14 @@ import React, { useState, useContext } from 'react';
 import { ProjectContext } from '../context/ProjectContext';
 import { AuthContext } from '../context/AuthContext';
 import { X, Trash2, ArrowUp, ArrowDown, Folder } from 'lucide-react';
+import MoveProjectSection from './MoveProjectSection';
 
 const COLORS = [
   '#0ea5e9', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#ef4444',
 ];
 
 export default function ProjectSettingsModal({ project, onClose }) {
-  const { updateProject, deleteProject, childProjects, reorderChildProjects } = useContext(ProjectContext);
+  const { updateProject, deleteProject, childProjects, reorderChildProjects, loadProject, loadProjects } = useContext(ProjectContext);
   const { setCurrentView } = useContext(AuthContext);
   const [name, setName] = useState(project.name);
   const [description, setDescription] = useState(project.description || '');
@@ -116,6 +117,12 @@ export default function ProjectSettingsModal({ project, onClose }) {
               </div>
             </div>
           )}
+
+          {/* Task 047: move this project under a parent, or to the top level */}
+          <MoveProjectSection
+            project={project}
+            onMoved={() => { loadProject(project.id); if (loadProjects) loadProjects(); }}
+          />
 
           {/* Sub-Projects Section */}
           {hasChildren && (

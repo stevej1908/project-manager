@@ -328,6 +328,23 @@ const updateProject = async (req, res) => {
           return res.status(404).json({ error: 'New parent project not found' });
         }
 
+        // Check not creating a cycle (can't parent to own descendant)
+        const cycleCheck = await pool.query(
+          `WITH RECURSIVE descendants AS (
+            SELECT id FROM projects WHERE parent_project_id = $1
+            UNION ALL
+            SELECT p.id FROM projects p JOIN descendants d ON p.parent_project_id = d.id
+          )
+          SELECT EXISTS(SELECT 1 FROM descendants WHERE id = $2) as is_descendant`,
+          [id, parent_project_id]
+        );
+
+        if (cycleCheck.rows[0].is_descendant) {
+          return res.status(400).json({
+            error: 'Cannot move a project under one of its own descendants'
+          });
+        }
+
         // Check depth would not exceed limit
         // Get max depth of descendants of this project
         const descDepth = await pool.query(
@@ -350,20 +367,13 @@ const updateProject = async (req, res) => {
           });
         }
 
-        // Check not creating a cycle (can't parent to own descendant)
-        const cycleCheck = await pool.query(
-          `WITH RECURSIVE descendants AS (
-            SELECT id FROM projects WHERE parent_project_id = $1
-            UNION ALL
-            SELECT p.id FROM projects p JOIN descendants d ON p.parent_project_id = d.id
-          )
-          SELECT EXISTS(SELECT 1 FROM descendants WHERE id = $2) as is_descendant`,
-          [id, parent_project_id]
-        );
-
-        if (cycleCheck.rows[0].is_descendant) {
-          return res.status(400).json({
-            error: 'Cannot move a project under one of its own descendants'
+        // Task 047: a Business project under a Private parent becomes hidden from everyone but the
+        // parent's owner (privacy follows the chain). Only on an explicit say-so.
+        if (access.row.privacy === 'business' && await privacy.projectChainPrivate(parent_project_id)
+            && req.body.allow_private_parent !== true) {
+          return res.status(409).json({
+            error: 'That parent project is Private. Moving a Business project under it makes it Private too: only its owner would see it. Confirm to go ahead.',
+            code: 'PRIVATE_PARENT'
           });
         }
       }

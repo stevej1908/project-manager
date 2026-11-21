@@ -24,6 +24,7 @@ import EmailAttachmentModal from './EmailAttachmentModal';
 import ContactsPickerModal from './ContactsPickerModal';
 import CreateTaskModal from './CreateTaskModal';
 import { PrivacySwitch } from './PrivacyQuestion';
+import { useCrossProjectLinks, CrossProjectPanel } from './CrossProjectLinks';
 
 const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'urgent'];
 const STATUS_OPTIONS = ['todo', 'in_progress', 'review', 'done'];
@@ -44,6 +45,8 @@ const STATUS_COLORS = {
 
 export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
   const [task, setTask] = useState(null);
+  // Task 047: does this task wait on (or hold up) a task in another project?
+  const crossLinks = useCrossProjectLinks(task && task.project_id, task);
   const [comments, setComments] = useState([]);
   const [attachments, setAttachments] = useState([]);
   const [emails, setEmails] = useState([]);
@@ -448,6 +451,7 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Main Content - Left Column */}
             <div className="lg:col-span-2 space-y-6">
+              <CrossProjectPanel entry={crossLinks.byTask[taskId]} parent={crossLinks.parent} />
               {/* Title */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -890,7 +894,10 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
                             </span>
                           </div>
                           <p className="text-sm text-gray-900">
-                            {relatedTask ? relatedTask.title : `Task #${relatedTaskId}`}
+                            {relatedTask ? relatedTask.title : (dep.task_title || `Task #${relatedTaskId}`)}
+                            {task && dep.project_id && dep.project_id !== task.project_id && (
+                              <span className="text-xs text-red-700 ml-1">(in {dep.project_name})</span>
+                            )}
                           </p>
                         </div>
                         <button

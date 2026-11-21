@@ -6,6 +6,7 @@ import TaskDetailsModal from './TaskDetailsModal';
 import { format } from 'date-fns';
 import { dependenciesAPI } from '../services/api';
 import { PrivateBadge } from './PrivacyQuestion';
+import { useCrossProjectLinks, CrossProjectBadges, CrossProjectBanner } from './CrossProjectLinks';
 
 const STATUS_COLUMNS = [
   { id: 'todo', title: 'To Do' },
@@ -21,6 +22,8 @@ export default function TaskListView({ projectId }) {
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [expandedTasks, setExpandedTasks] = useState(new Set());
   const [taskDependencies, setTaskDependencies] = useState({});
+  // Task 047: tasks here that wait on (or hold up) a task in another project
+  const crossLinks = useCrossProjectLinks(projectId, tasks);
 
   // Load dependencies for all tasks
   useEffect(() => {
@@ -140,6 +143,9 @@ export default function TaskListView({ projectId }) {
               )}
 
               <span className="text-sm text-gray-900 font-medium">
+                {crossLinks.byTask[task.id] && crossLinks.byTask[task.id].waitsOn.some(l => l.hidden || !l.other_done) && (
+                  <span className="text-red-600 mr-1" title="Waits on unfinished work in another project">⇠</span>
+                )}
                 {task.title}
               </span>
               <PrivateBadge privacy={task.privacy} />
@@ -169,6 +175,7 @@ export default function TaskListView({ projectId }) {
                 <Plus className="w-3 h-3" />
               </button>
             </div>
+            <CrossProjectBadges entry={crossLinks.byTask[task.id]} />
           </td>
 
           {/* Status Columns */}
@@ -204,6 +211,7 @@ export default function TaskListView({ projectId }) {
 
   return (
     <>
+      <CrossProjectBanner links={crossLinks} />
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         {/* Header with Add Task button */}
         <div className="p-4 border-b border-gray-200 flex justify-between items-center">

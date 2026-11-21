@@ -1,7 +1,14 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { isWaiting, linkLines, CrossProjectBadges } from './CrossProjectLinks';
 import Gantt from 'frappe-gantt';
 import { format, parseISO, addDays } from 'date-fns';
 import '../styles/frappe-gantt.css';
+
+const NO_LINKS = {};
+
+function escapeHtml(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
 /**
  * GanttChart Component
@@ -18,6 +25,7 @@ import '../styles/frappe-gantt.css';
 export default function GanttChart({
   tasks = [],
   dependencies = [],
+  externalLinks = NO_LINKS,   // task 047: { taskId: { waitsOn, holdsUp } } - links to tasks in other projects
   onTaskUpdate,
   onTaskClick,
   viewMode = 'Week',
@@ -283,16 +291,21 @@ export default function GanttChart({
   const transformTasksForGantt = useCallback(() => {
     const criticalPath = calculateCriticalPath();
     const sortedTasks = sortTasksHierarchically(tasks);
+    const onChart = new Set(tasks.map(t => t.id));
 
     return sortedTasks.map(task => {
       // Ensure tasks have valid dates
       const start = task.start_date ? parseISO(task.start_date) : new Date();
       const end = task.end_date ? parseISO(task.end_date) : addDays(start, 1);
 
-      // Build dependencies array for this task
+      // Build dependencies array for this task. Only tasks on this chart: a link to a task in
+      // another project has no bar here, so it is shown as a marker instead (task 047).
       const taskDeps = dependencies
-        .filter(dep => dep.dependent_task_id === task.id)
+        .filter(dep => dep.dependent_task_id === task.id && onChart.has(dep.depends_on_task_id))
         .map(dep => `task_${dep.depends_on_task_id}`);
+      const cross = externalLinks[task.id];
+      const waits = isWaiting(cross);
+      const holds = !!(cross && cross.holdsUp.length && !['done', 'completed'].includes(task.status));
 
       // Build a single compound class name (no spaces) for frappe-gantt
       // frappe-gantt's classList.add() doesn't handle space-separated classes
@@ -306,13 +319,18 @@ export default function GanttChart({
       if (isCritical) {
         customClass += '-critical';
       }
+      if (waits) {
+        customClass += '-waits';   // red dashed outline: not free to start
+      } else if (holds) {
+        customClass += '-holds';
+      }
 
       const progress = calculateProgress(task);
       const assignees = getAssigneeNames(task);
 
       return {
         id: `task_${task.id}`,
-        name: task.title,
+        name: waits ? `⇠ ${task.title}` : task.title,
         start: format(start, 'yyyy-MM-dd'),
         end: format(end, 'yyyy-MM-dd'),
         progress: progress,
@@ -321,10 +339,11 @@ export default function GanttChart({
         // Store original task data for callbacks
         _task: task,
         _assignees: assignees,
-        _isCritical: isCritical
+        _isCritical: isCritical,
+        _cross: linkLines(cross)
       };
     });
-  }, [tasks, dependencies, calculateCriticalPath, calculateProgress, getAssigneeNames, sortTasksHierarchically]);
+  }, [tasks, dependencies, externalLinks, calculateCriticalPath, calculateProgress, getAssigneeNames, sortTasksHierarchically]);
 
   // Initialize or update Gantt chart
   useEffect(() => {
@@ -377,6 +396,7 @@ export default function GanttChart({
                 ${task.name}
                 ${task._isCritical ? '<span class="critical-badge">Critical Path</span>' : ''}
               </div>
+              ${(task._cross || []).map(l => `<p class="gantt-cross gantt-cross-${l.kind}">${escapeHtml(l.text)}</p>`).join('')}
               <div class="gantt-popup-content">
                 <p><strong>Status:</strong> <span class="status-badge status-${originalTask.status}">${originalTask.status.replace('_', ' ')}</span></p>
                 <p><strong>Priority:</strong> <span class="priority-badge priority-${originalTask.priority}">${originalTask.priority}</span></p>
@@ -465,7 +485,7 @@ export default function GanttChart({
       // Instance will be cleaned up on component unmount
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, dependencies]); // Removed currentViewMode - view changes handled by changeViewMode()
+  }, [tasks, dependencies, externalLinks]); // Removed currentViewMode - view changes handled by changeViewMode()
 
   // Synchronize scroll between task names and Gantt chart
   useEffect(() => {
@@ -638,9 +658,13 @@ export default function GanttChart({
                   onClick={() => onTaskClick && onTaskClick(task)}
                   title={task.title}
                 >
-                  <span className={`${task.parent_task_id ? 'ml-4 text-gray-600' : 'font-medium text-gray-900'}`}>
-                    {task.title}
-                  </span>
+                  <div className="min-w-0 w-full">
+                    <div className={`truncate ${task.parent_task_id ? 'ml-4 text-gray-600' : 'font-medium text-gray-900'}`}>
+                      {isWaiting(externalLinks[task.id]) && <span className="text-red-600 mr-1" title="Waits on unfinished work in another project">⇠</span>}
+                      {task.title}
+                    </div>
+                    <CrossProjectBadges entry={externalLinks[task.id]} compact />
+                  </div>
                 </div>
               ))}
             </div>
@@ -674,6 +698,21 @@ export default function GanttChart({
         .gantt-chart-container {
           width: 100%;
         }
+
+        /* Task 047: waits on unfinished work in another project - must not look free to start */
+        .gantt-chart .bar-wrapper[class*="-waits"] .bar {
+          stroke: #dc2626;
+          stroke-width: 2;
+          stroke-dasharray: 5 3;
+        }
+        .gantt-chart .bar-wrapper[class*="-holds"] .bar {
+          stroke: #d97706;
+          stroke-width: 2;
+        }
+        .gantt-popup .gantt-cross { margin: 2px 0; font-size: 12px; }
+        .gantt-popup .gantt-cross-waits { color: #b91c1c; font-weight: 600; }
+        .gantt-popup .gantt-cross-holds { color: #92400e; }
+        .gantt-popup .gantt-cross-done { color: #6b7280; }
 
         .gantt-wrapper {
           position: relative;

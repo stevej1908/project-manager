@@ -32,7 +32,10 @@ async function apiRequest(endpoint, options = {}) {
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data.message || data.error || 'An error occurred');
+    const err = new Error(data.message || data.error || 'An error occurred');
+    err.status = response.status;
+    if (data.code) err.code = data.code;
+    throw err;
   }
 
   return data;
@@ -51,6 +54,7 @@ export const projectsAPI = {
   getById: (id) => apiRequest(`/projects/${id}`),
   getChildren: (id) => apiRequest(`/projects/${id}/children`),
   getTree: (id) => apiRequest(`/projects/${id}/tree`),
+  getAllTree: () => apiRequest('/projects?tree=true'),   // task 047: every project I can see, with depth
   getByParent: (parentId) => apiRequest(`/projects?parent_id=${parentId}`),
   create: (data) => apiRequest('/projects', { method: 'POST', body: JSON.stringify(data) }),
   update: (id, data) => apiRequest(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -160,6 +164,7 @@ export const usersAPI = {
 export const dependenciesAPI = {
   getAll: (projectId) => apiRequest(`/dependencies?projectId=${projectId}`),
   getForTask: (taskId) => apiRequest(`/dependencies/task/${taskId}`),
+  getExternal: (projectId) => apiRequest(`/dependencies/external?projectId=${projectId}`),   // task 047
   getCrossProject: (parentProjectId) => apiRequest(`/dependencies/cross-project?parent_project_id=${parentProjectId}`),
   create: (data) => apiRequest('/dependencies', { method: 'POST', body: JSON.stringify(data) }),
   update: (id, data) => apiRequest(`/dependencies/${id}`, { method: 'PUT', body: JSON.stringify(data) }),

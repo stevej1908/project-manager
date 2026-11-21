@@ -4,6 +4,7 @@ import GanttChart from './GanttChart';
 import LoadingSpinner from './LoadingSpinner';
 import TaskDetailsModal from './TaskDetailsModal';
 import { AlertCircle, Filter, X } from 'lucide-react';
+import { useCrossProjectLinks, CrossProjectBanner } from './CrossProjectLinks';
 
 /**
  * GanttView Component
@@ -17,6 +18,9 @@ import { AlertCircle, Filter, X } from 'lucide-react';
 export default function GanttView({ projectId, crossProjectMode = false, focusTaskId = null }) {
   const [tasks, setTasks] = useState([]);
   const [dependencies, setDependencies] = useState([]);
+  // Task 047: on a project's own chart, mark tasks that wait on (or hold up) another project.
+  // The parent's combined chart draws those links as arrows instead.
+  const crossLinks = useCrossProjectLinks(crossProjectMode ? null : projectId, tasks);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
@@ -222,6 +226,7 @@ export default function GanttView({ projectId, crossProjectMode = false, focusTa
     <>
       <div className="gantt-view">
         {/* Filter Controls */}
+        {!crossProjectMode && <CrossProjectBanner links={crossLinks} />}
         <div className="mb-4 flex gap-4 items-start">
           <button
             onClick={() => setShowFilters(!showFilters)}
@@ -336,6 +341,7 @@ export default function GanttView({ projectId, crossProjectMode = false, focusTa
           <GanttChart
             tasks={tasksWithDates}
             dependencies={dependencies}
+            externalLinks={crossProjectMode ? undefined : crossLinks.byTask}
             onTaskUpdate={handleTaskUpdate}
             onTaskClick={handleTaskClick}
             viewMode="Week"
