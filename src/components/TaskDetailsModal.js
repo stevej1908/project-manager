@@ -25,6 +25,7 @@ import ContactsPickerModal from './ContactsPickerModal';
 import CreateTaskModal from './CreateTaskModal';
 import { PrivacySwitch } from './PrivacyQuestion';
 import { useCrossProjectLinks, CrossProjectPanel } from './CrossProjectLinks';
+import DeleteTaskDialog from './DeleteTaskDialog';
 
 const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'urgent'];
 const STATUS_OPTIONS = ['todo', 'in_progress', 'review', 'done'];
@@ -86,6 +87,7 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
 
   // Contacts picker state
   const [showContactsPicker, setShowContactsPicker] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);   // task 048
 
   useEffect(() => {
     loadTaskDetails();
@@ -1036,14 +1038,42 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
               </>
             )}
           </div>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-          >
-            Close
-          </button>
+          <div className="flex items-center gap-3">
+            {/* Task 048: out of the way, and always asks first */}
+            {task && (
+              <button
+                type="button"
+                onClick={() => setShowDelete(true)}
+                className="px-3 py-2 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1"
+                data-testid="delete-task-button"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete task
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
+
+      {showDelete && task && (
+        <DeleteTaskDialog
+          task={task}
+          comments={comments.length}
+          attachments={attachments.length}
+          emails={emails.length}
+          waitingOnIt={dependencies
+            .filter(d => d.depends_on_task_id === task.id && d.dependent_task_id !== task.id)
+            .map(d => `${d.task_title || `Task #${d.dependent_task_id}`}${d.project_id && d.project_id !== task.project_id && d.project_name ? ` (in ${d.project_name})` : ''}`)}
+          onCancel={() => setShowDelete(false)}
+          onDeleted={() => { setShowDelete(false); if (onUpdate) onUpdate(); onClose(); }}
+        />
+      )}
 
       {/* Drive File Picker Modal */}
       {showDrivePicker && (

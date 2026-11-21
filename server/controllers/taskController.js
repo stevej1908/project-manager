@@ -613,8 +613,12 @@ const addAssignee = async (req, res) => {
     const { contact_name, contact_email, contact_google_id } = req.body;
     const userId = req.user.id;
 
-    if (!contact_email) {
-      return res.status(400).json({ error: 'Contact email is required' });
+    // Task 048 (WES CRM handoff): an owner may be a name with no email, e.g. an AI assistant
+    // ("Duet (AI assistant)") that owns tasks but has no mailbox. Nobody invents an email for it.
+    const name = contact_name && String(contact_name).trim();
+    const email = contact_email && String(contact_email).trim();
+    if (!email && !name) {
+      return res.status(400).json({ error: 'A name or an email is required' });
     }
 
     // Task 042: only a task this user can see; a Private task only to its owner.
@@ -625,15 +629,16 @@ const addAssignee = async (req, res) => {
     if (!privacy.canEdit(access.role)) {
       return res.status(403).json({ error: 'Viewers cannot add assignees' });
     }
-    if (access.row.privacy === 'private' && await privacy.otherUserAssignees(access.row.created_by, [{ contact_email }])) {
+    // A Private task stays with its owner: no other user, and no name-only owner either (task 048).
+    if (access.row.privacy === 'private' && (!email || await privacy.otherUserAssignees(access.row.created_by, [{ contact_email: email }]))) {
       return res.status(400).json({ error: privacy.PRIVATE_ASSIGN });
     }
 
-    // Check if this contact is already assigned
-    const existingAssignee = await pool.query(
-      'SELECT id FROM task_assignees WHERE task_id = $1 AND contact_email = $2',
-      [id, contact_email]
-    );
+    // Check if this contact is already assigned (by email; a name-only owner by name)
+    const existingAssignee = email
+      ? await pool.query('SELECT id FROM task_assignees WHERE task_id = $1 AND contact_email = $2', [id, email])
+      : await pool.query(`SELECT id FROM task_assignees WHERE task_id = $1 AND contact_email IS NULL AND user_id IS NULL
+                           AND LOWER(TRIM(contact_name)) = LOWER($2)`, [id, name]);
 
     if (existingAssignee.rows.length > 0) {
       return res.status(400).json({ error: 'This contact is already assigned to this task' });
@@ -644,7 +649,7 @@ const addAssignee = async (req, res) => {
       `INSERT INTO task_assignees (task_id, contact_name, contact_email, contact_google_id, assigned_by)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [id, contact_name, contact_email, contact_google_id, userId]
+      [id, name || email, email || null, contact_google_id || null, userId]
     );
 
     res.status(201).json({ assignee: result.rows[0] });
