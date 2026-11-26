@@ -3,6 +3,7 @@ import { ProjectContext } from '../context/ProjectContext';
 import { X, User, Plus, Trash2 } from 'lucide-react';
 import ContactsPickerModal from './ContactsPickerModal';
 import PrivacyQuestion from './PrivacyQuestion';
+import { daysFromToday, NEEDS_DATE_NOTE } from '../utils/taskDates';
 
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'];
 const STATUSES = ['todo', 'in_progress', 'review', 'done'];
@@ -12,7 +13,8 @@ export default function CreateTaskModal({ projectId, initialStatus = 'todo', par
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  // Task 051: a new task starts with a due date 7 days out, shown here so it can be changed.
+  const [endDate, setEndDate] = useState(() => (initialStatus === 'done' ? '' : daysFromToday()));
   const [priority, setPriority] = useState('medium');
   const [status, setStatus] = useState(initialStatus);
   const [assignees, setAssignees] = useState([]);
@@ -25,6 +27,11 @@ export default function CreateTaskModal({ projectId, initialStatus = 'todo', par
     e.preventDefault();
     if (!title.trim()) {
       setError('Task title is required');
+      return;
+    }
+    if (!endDate && status !== 'done') {   // task 051: never saved without a date
+      setEndDate(daysFromToday());
+      setError(NEEDS_DATE_NOTE);
       return;
     }
     setError('');

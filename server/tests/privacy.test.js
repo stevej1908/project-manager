@@ -49,7 +49,8 @@ beforeAll(async () => {
 
   const S = as(steve);
   const proj = async (body) => { const r = await S.post('/api/projects', body); expect(r.status).toBe(201); return r.body.project; };
-  const task = async (body) => { const r = await S.post('/api/tasks', body); expect(r.status).toBe(201); return r.body.task; };
+  // Task 051: a task may only wait on a dated one, so the test tasks carry a date.
+  const task = async (body) => { const r = await S.post('/api/tasks', { end_date: '2030-01-15', ...body }); expect(r.status).toBe(201); return r.body.task; };
 
   R.shared = await proj({ name: 'Shared work', privacy: 'business' });
   expect((await S.post(`/api/projects/${R.shared.id}/share`, { email: debEmail, role: 'editor' })).status).toBeLessThan(300);

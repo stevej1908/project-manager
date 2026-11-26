@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import {
   X,
   Calendar,
@@ -26,6 +26,8 @@ import CreateTaskModal from './CreateTaskModal';
 import { PrivacySwitch } from './PrivacyQuestion';
 import { useCrossProjectLinks, CrossProjectPanel } from './CrossProjectLinks';
 import DeleteTaskDialog from './DeleteTaskDialog';
+import { ProjectContext } from '../context/ProjectContext';
+import { daysFromToday, NEEDS_DATE_NOTE } from '../utils/taskDates';
 
 const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'urgent'];
 const STATUS_OPTIONS = ['todo', 'in_progress', 'review', 'done'];
@@ -52,6 +54,10 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
   const [attachments, setAttachments] = useState([]);
   const [emails, setEmails] = useState([]);
   const [dependencies, setDependencies] = useState([]);
+  // Task 051: does this task wait on another one? (Then it may have no date yet.)
+  const [waitsOnSomething, setWaitsOnSomething] = useState(false);
+  const [dateNote, setDateNote] = useState('');
+  const projectCtx = useContext(ProjectContext);
   const [subTasks, setSubTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -112,8 +118,12 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
         status: taskData.status,
         priority: taskData.priority,
         start_date: taskData.start_date ? taskData.start_date.split('T')[0] : '',
-        end_date: taskData.end_date ? taskData.end_date.split('T')[0] : ''
+        // Task 051: an open task with no date and nothing it waits on shows the 7-day default.
+        end_date: taskData.end_date ? taskData.end_date.split('T')[0]
+          : (taskData.status !== 'done' && !(depsData.depends_on || []).length ? daysFromToday() : '')
       });
+      setWaitsOnSomething((depsData.depends_on || []).length > 0);
+      setDateNote('');
       setHasChanges(false);
 
       // Comments and attachments come from the task object
@@ -199,6 +209,13 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
 
   const handleSaveAll = async () => {
     try {
+      // Task 051: an open task that waits on nothing keeps a due date.
+      if (!editedTask.end_date && editedTask.status !== 'done' && !waitsOnSomething) {
+        setEditedTask({ ...editedTask, end_date: daysFromToday() });
+        setDateNote(NEEDS_DATE_NOTE);
+        return;
+      }
+      setDateNote('');
       setSaving(true);
 
       // Prepare update data - only send fields that have changed
@@ -228,6 +245,10 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
         setHasChanges(false);
 
         if (onUpdate) onUpdate(updatedTask);
+        // Task 051: done now? Ask about waiting tasks' dates and a follow-on.
+        if (updateData.status === 'done' && projectCtx && projectCtx.askAfterDone) {
+          projectCtx.askAfterDone(updatedTask, response.dated_waiting);
+        }
       }
     } catch (error) {
       console.error('Error updating task:', error);
@@ -311,6 +332,7 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
         ...(depsData.blocks || [])
       ];
       setDependencies(allDeps);
+      setWaitsOnSomething((depsData.depends_on || []).length > 0);
 
       // Reset form
       setNewDependency({
@@ -617,6 +639,7 @@ export default function TaskDetailsModal({ taskId, onClose, onUpdate }) {
                   onChange={(e) => handleFieldChange('end_date', e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
+                {dateNote && <p className="mt-1 text-sm text-amber-700" data-testid="date-note">{dateNote}</p>}
               </div>
 
               {/* Assignees */}

@@ -4,6 +4,7 @@ import { ProjectContext } from '../context/ProjectContext';
 import { googleAPI } from '../services/api';
 import { X, Mail } from 'lucide-react';
 import LoadingSpinner from './LoadingSpinner';
+import { daysFromToday } from '../utils/taskDates';
 
 export default function GmailPickerModal({ projectId, onClose }) {
   const { createTask, loadTasks } = useContext(ProjectContext);
@@ -40,6 +41,7 @@ export default function GmailPickerModal({ projectId, onClose }) {
         gmail_message_id: message.id,
         gmail_thread_id: message.threadId,
         status: 'todo',
+        end_date: daysFromToday(),   // task 051: every open task has a due date (7 days out)
       });
       await loadTasks(projectId);
       onClose();

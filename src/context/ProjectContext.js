@@ -1,5 +1,6 @@
 import React, { createContext, useState } from 'react';
 import { projectsAPI, tasksAPI, projectDependenciesAPI } from '../services/api';
+import DoneQuestions from '../components/DoneQuestions';
 
 export const ProjectContext = createContext();
 
@@ -11,6 +12,9 @@ export function ProjectProvider({ children }) {
   const [childProjects, setChildProjects] = useState([]);
   const [parentProject, setParentProject] = useState(null);
   const [projectDependencies, setProjectDependencies] = useState([]);
+  // Task 051: after a task is marked done, ask about waiting tasks' dates and a follow-on.
+  const [doneAsk, setDoneAsk] = useState(null);
+  const askAfterDone = (task, datedWaiting) => { if (task) setDoneAsk({ task, datedWaiting: datedWaiting || [] }); };
 
   const loadProjects = async () => {
     try {
@@ -156,8 +160,10 @@ export function ProjectProvider({ children }) {
 
   const updateTask = async (id, data) => {
     try {
-      const { task } = await tasksAPI.update(id, data);
+      const before = tasks.find((t) => t.id === id);
+      const { task, dated_waiting: datedWaiting } = await tasksAPI.update(id, data);
       setTasks(tasks.map((t) => (t.id === id ? task : t)));
+      if (data.status === 'done' && (!before || before.status !== 'done')) askAfterDone(task, datedWaiting);
       return task;
     } catch (error) {
       console.error('Error updating task:', error);
@@ -203,9 +209,20 @@ export function ProjectProvider({ children }) {
         updateTask,
         deleteTask,
         reorderTasks,
+        askAfterDone,
       }}
     >
       {children}
+      {doneAsk && (
+        <DoneQuestions
+          ask={doneAsk}
+          onFinished={(changed) => {
+            const projectId = doneAsk.task.project_id;
+            setDoneAsk(null);
+            if ((changed || doneAsk.datedWaiting.length) && projectId) loadTasks(projectId);
+          }}
+        />
+      )}
     </ProjectContext.Provider>
   );
 }

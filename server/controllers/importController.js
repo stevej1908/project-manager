@@ -354,7 +354,10 @@ const executeImport = async (req, res) => {
       const status = normalizeStatus(getMappedValue(row, 'status'));
       const description = getMappedValue(row, 'description');
       const startDate = parseDate(getMappedValue(row, 'start_date'));
-      const endDate = parseDate(getMappedValue(row, 'end_date'));
+      // Task 051: an open task always has a due date; an imported row without one gets 7 days out
+      // (the same default the screens fill in).
+      const endDate = parseDate(getMappedValue(row, 'end_date'))
+        || (status === 'done' ? null : require('../lib/taskDates').daysFromToday(7));
       const position = await getNextPosition(parentTaskId);
 
       const result = await client.query(

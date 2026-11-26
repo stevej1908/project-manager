@@ -1,5 +1,6 @@
 const { pool } = require('../config/database');
 const privacy = require('../lib/privacy');
+const taskDates = require('../lib/taskDates');   // task 051
 
 // Get all dependencies for a project
 const getDependencies = async (req, res) => {
@@ -104,37 +105,54 @@ const createDependency = async (req, res) => {
       isCrossProject = true;
     }
 
-    // Check for circular dependency
-    const circularCheck = await pool.query(
-      'SELECT check_circular_dependency($1, $2) as has_cycle',
-      [dependent_task_id, depends_on_task_id]
-    );
+    // Task 051: the checks and the insert run in one transaction, one link at a time,
+    // so two links made at the same moment cannot together close a loop.
+    const client = await pool.connect();
+    let result;
+    try {
+      await client.query('BEGIN');
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('task_dependencies'))");
 
-    if (circularCheck.rows[0].has_cycle) {
-      return res.status(400).json({
-        error: 'Cannot create dependency: would create a circular dependency'
-      });
+      // Task 051: a task may only wait on a task that has a date (directly or up its chain).
+      const undated = await taskDates.undatedChain(client, depends_on_task_id);
+      if (undated) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: taskDates.undatedMessage(undated), code: 'BLOCKER_UNDATED', task: undated });
+      }
+
+      // Loops of any length are refused, naming the tasks in the loop.
+      const loop = await taskDates.loopPath(client, dependent_task_id, depends_on_task_id);
+      if (loop) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: taskDates.loopMessage(loop), code: 'LOOP', loop });
+      }
+
+      // Create the dependency
+      result = await client.query(
+        `INSERT INTO task_dependencies (
+          dependent_task_id, depends_on_task_id, dependency_type,
+          lag_days, from_point, to_point, created_by, is_cross_project
+        )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING *`,
+        [
+          dependent_task_id,
+          depends_on_task_id,
+          dependency_type || 'finish_to_start',
+          lag_days || 0,
+          from_point || 100,
+          to_point || 0,
+          userId,
+          isCrossProject
+        ]
+      );
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      client.release();
     }
-
-    // Create the dependency
-    const result = await pool.query(
-      `INSERT INTO task_dependencies (
-        dependent_task_id, depends_on_task_id, dependency_type,
-        lag_days, from_point, to_point, created_by, is_cross_project
-      )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING *`,
-      [
-        dependent_task_id,
-        depends_on_task_id,
-        dependency_type || 'finish_to_start',
-        lag_days || 0,
-        from_point || 100,
-        to_point || 0,
-        userId,
-        isCrossProject
-      ]
-    );
 
     res.status(201).json({ dependency: result.rows[0] });
   } catch (error) {

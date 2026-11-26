@@ -1,5 +1,6 @@
 const { pool } = require('../config/database');
 const privacy = require('../lib/privacy');
+const taskDates = require('../lib/taskDates');   // task 051
 
 // Get all tasks for a project
 const getTasks = async (req, res) => {
@@ -397,10 +398,15 @@ const updateTask = async (req, res) => {
       [title, description, start_date, end_date, status, priority, position, completed_at, id]
     );
 
+    // Task 051 B3: this task is done, so each undated task waiting on it gets the done date
+    // + 2 working days. The screen then asks the person to confirm or change it.
+    const datedWaiting = status === 'done' ? await taskDates.dateWaitingTasks(client, id) : [];
+
     // If this task has a parent and status was changed, update parent status
     if (parent_task_id && status) {
       const newParentStatus = await calculateParentStatus(parent_task_id);
       const parentCompletedAt = newParentStatus === 'done' ? new Date() : null;
+      if (newParentStatus === 'done') datedWaiting.push(...await taskDates.dateWaitingTasks(client, parent_task_id));
 
       await client.query(
         `UPDATE tasks
@@ -494,9 +500,9 @@ const updateTask = async (req, res) => {
     // If we re-parented, return the fresh row (parent/depth changed post-update).
     if (reparented) {
       const fresh = await pool.query('SELECT * FROM tasks WHERE id = $1', [id]);
-      return res.json({ task: fresh.rows[0] });
+      return res.json({ task: fresh.rows[0], dated_waiting: datedWaiting });
     }
-    res.json({ task: result.rows[0] });
+    res.json({ task: result.rows[0], dated_waiting: datedWaiting });
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error updating task:', error);
